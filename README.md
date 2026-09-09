@@ -23,7 +23,7 @@ Add to a private env file:
 
 ```dotenv
 STRAPI_URL=http://localhost:1337
-STRAPI_API_TOKEN=your-strapi-token
+STRAPI_API_TOKEN=
 ```
 
 Create a Strapi token with find/findOne/create/update permissions on the required collection and read access to its media and relations. No hosted account or MCP access key is needed for stdio.
