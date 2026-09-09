@@ -1,0 +1,74 @@
+services:
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    depends_on:
+      mcp:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+
+  mcp:
+    build: .
+    restart: unless-stopped
+    environment:
+      TRANSPORT: http
+      HOST: 0.0.0.0
+      PORT: 8787
+      PROJECTS_CONFIG: /run/config/projects.json
+      AUDIT_DB: /app/data/audit.sqlite
+      DATABASE_URL: postgres://safe_strapi:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/safe_strapi
+      REQUEST_BODY_LIMIT: 2mb
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      PUBLIC_URL: https://${PUBLIC_DOMAIN}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      OIDC_JWKS_URI: ${OIDC_JWKS_URI:-}
+      STRAPI_API_TOKEN: ${STRAPI_API_TOKEN:?set STRAPI_API_TOKEN}
+    volumes:
+      - ./config/projects.json:/run/config/projects.json:ro
+      - audit-data:/app/data
+    expose:
+      - "8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: safe_strapi
+      POSTGRES_USER: safe_strapi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safe_strapi -d safe_strapi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    expose:
+      - "3000"
+
+volumes:
+  audit-data:
+  caddy-data:
+  caddy-config:
+  postgres-data:

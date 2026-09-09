@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "my-site": {
+      "baseUrl": "http://localhost:1337",
+      "tokenEnv": "STRAPI_API_TOKEN",
+      "collection": "pages",
+      "blocksField": "blocks",
+      "slugField": "slug",
+      "titleField": "title",
+      "populate": "deep",
+      "defaultLocale": "en",
+      "schemaRoot": "/absolute/path/to/strapi",
+      "contentType": "page"
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "safe-strapi-mcp",
+  "version": "0.1.2",
+  "files": ["dist/src", "README.md"],
+  "type": "module",
+  "description": "Safe, clone-first Strapi content operations over MCP",
+  "license": "MIT",
+  "author": "Metehan Kasap",
+  "homepage": "https://safe-strapi-mcp.metehankasapp.workers.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metehankasapp/safe-strapi-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/metehankasapp/safe-strapi-mcp/issues"
+  },
+  "keywords": ["strapi", "mcp", "model-context-protocol", "cms", "content-automation", "ai"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "bin": {
+    "safe-strapi-mcp": "dist/src/index.js"
+  },
+  "scripts": {
+    "prepack": "npm run build",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/src/index.js",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.7.0",
+    "jose": "^6.2.12",
+    "pg": "^8.23.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.0",
+    "@types/pg": "^8.23.1",
+    "pg-mem": "^3.0.14",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

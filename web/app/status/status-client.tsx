@@ -1,0 +1,3 @@
+'use client';
+import { useEffect,useState } from 'react';
+export function StatusClient(){const[state,setState]=useState<'checking'|'online'|'degraded'>('checking');useEffect(()=>{Promise.all([fetch('/health'),fetch('/ready')]).then(r=>setState(r.every(x=>x.ok)?'online':'degraded')).catch(()=>setState('degraded'))},[]);return <div className={`liveStatus ${state}`}><span/><div><strong>{state==='checking'?'Checking service…':state==='online'?'All systems operational':'Service disruption detected'}</strong><small>{state==='online'?'The MCP gateway and audit store are responding.':state==='checking'?'Contacting the live deployment.':'One or more readiness checks failed.'}</small></div></div>}

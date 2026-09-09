@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "safe-strapi-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "../web/out",
+    "binding": "ASSETS",
+    "run_worker_first": ["/mcp", "/health", "/ready"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "safe-strapi",
+      "database_id": "2390671d-bbd4-4c18-8ed1-5783458f0304",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "COORDINATOR", "class_name": "McpCoordinator" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["McpCoordinator"] }
+  ]
+}
