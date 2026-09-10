@@ -68,6 +68,8 @@ Ask your client to list projects, inspect the page, preview operations, and crea
 
 Tools: `list_projects`, `find_pages`, `inspect_page`, `list_components`, `get_component_schema`, `preview_clone_and_modify`, `clone_page_and_modify`, `inspect_owned_draft`, `modify_owned_draft`, `duplicate_component`, `replace_component`, `validate_draft`, `compare_pages`.
 
+Copy-ready workflows for discovery, JSON insertion, component reordering, long pages, team review drafts, and conflict recovery are available in the [prompt cookbook](https://safe-strapi-mcp.metehankasapp.workers.dev/prompts). AI clients can read the same guide directly as [Markdown](https://safe-strapi-mcp.metehankasapp.workers.dev/prompts.md) or discover key resources through [`llms.txt`](https://safe-strapi-mcp.metehankasapp.workers.dev/llms.txt).
+
 Indexes are zero-based. Operations run sequentially, so later indexes refer to the current order. Ambiguous selectors must include an occurrence or index. Writes require revision hashes and idempotency keys; retries with a different operation hash are rejected.
 
 If a create response is lost before its document ID can be recorded, the retry fails closed with `WRITE_OUTCOME_UNKNOWN`; it never submits another create or adopts a page by slug. Inspect the CMS through its API and use a new operation only after resolving the uncertain result. A lost update response is safely reconciled from the recorded intended content without a second PUT.

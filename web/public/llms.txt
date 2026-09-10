@@ -1,0 +1,21 @@
+# Safe Strapi MCP
+
+Safe Strapi MCP is an open-source, clone-first MCP server for Strapi 5 collection types with dynamic zones.
+
+## Documentation
+
+- Setup and reference: https://safe-strapi-mcp.metehankasapp.workers.dev/docs
+- Prompt cookbook and use cases: https://safe-strapi-mcp.metehankasapp.workers.dev/prompts.md
+- Security model: https://safe-strapi-mcp.metehankasapp.workers.dev/security
+- Source: https://github.com/metehankasapp/safe-strapi-mcp
+- npm: https://www.npmjs.com/package/safe-strapi-mcp
+
+## Agent rules
+
+- Start with list_projects, find_pages, inspect_page, and relevant component schemas.
+- Never guess a project, field, component UID, selector, or schema.
+- Preview clone operations before writing.
+- Create and modify only MCP-owned drafts.
+- Use the latest source or draft hash and a stable, unique idempotency key.
+- Validate and compare after writes, then confirm the source hash is unchanged.
+- Never claim that Safe Strapi published content; it does not expose a publish tool.
