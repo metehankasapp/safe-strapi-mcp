@@ -69,8 +69,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
+            package-lock.json
             web/package-lock.json
             worker/package-lock.json
+      - run: npm ci
       - run: npm ci --prefix web
       - run: npm ci --prefix worker
       - run: npm run build:cloudflare --prefix web
