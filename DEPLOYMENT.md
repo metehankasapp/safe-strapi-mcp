@@ -15,6 +15,16 @@ node scripts/remote-smoke.mjs https://safe-strapi-mcp.<account>.workers.dev
 
 MCP and project credentials must be stored with `wrangler secret put`; never add them to `wrangler.jsonc`.
 
+### Automatic deploys from GitHub
+
+Every push to `main` deploys after the package, web, and Worker CI jobs pass. Configure these repository settings once:
+
+- variable `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account ID;
+- variable `CLOUDFLARE_DEPLOY_ENABLED`: set to `true` after adding the token;
+- secret `CLOUDFLARE_API_TOKEN`: a scoped Cloudflare API token permitted to deploy Workers in that account.
+
+The workflow builds the static web export before running `wrangler deploy`. Runtime secrets already stored in Cloudflare are not copied to GitHub or replaced during deployment.
+
 ## Docker deployment
 
 The repository deploys as two isolated containers behind Caddy:

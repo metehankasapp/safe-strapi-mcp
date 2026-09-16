@@ -56,3 +56,27 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix worker
       - run: npm run typecheck --prefix worker
+
+  deploy:
+    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    needs: [package, web, worker]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            worker/package-lock.json
+      - run: npm ci --prefix web
+      - run: npm ci --prefix worker
+      - run: npm run build:cloudflare --prefix web
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
