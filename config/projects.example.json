@@ -6,6 +6,7 @@
       "collection": "pages",
       "blocksField": "blocks",
       "slugField": "slug",
+      "routeField": "url",
       "titleField": "title",
       "populate": "deep",
       "defaultLocale": "en",

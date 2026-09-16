@@ -58,6 +58,50 @@ test('lost POST response never retries a create or adopts an unowned matching pa
   } finally { audit.close(); await mock.close(); }
 });
 
+test('configured routeField tracks cloneSlug and is reported in preview and result', async () => {
+  const original = { ...sourcePage(), url: 'source-page' };
+  const mock = await startMockStrapi(original);
+  process.env.TEST_STRAPI_TOKEN = 'mock-token';
+  const audit = new AuditStore(resolve(tmpdir(), `safe-strapi-route-${randomUUID()}.sqlite`));
+  const config: AppConfig = { projects: { test: {
+    baseUrl: mock.baseUrl, tokenEnv: 'TEST_STRAPI_TOKEN', collection: 'pages', blocksField: 'blocks',
+    slugField: 'slug', routeField: 'url', titleField: 'title',
+    contentTypeSchema: { attributes: {
+      slug: { type: 'uid' }, url: { type: 'string' }, title: { type: 'string' }, blocks: { type: 'dynamiczone' },
+    } },
+  } } };
+  const service = new ContentService(config, audit);
+  try {
+    const request = { project: 'test', sourceDocumentId: 'source-page', cloneSlug: 'source-page-copy', idempotencyKey: 'route-field-clone', operations: [] };
+    const preview = await service.preview(request);
+    assert.deepEqual(preview.topLevelChanges, [
+      { field: 'slug', from: 'source-page', to: 'source-page-copy' },
+      { field: 'url', from: 'source-page', to: 'source-page-copy' },
+      { field: 'title', from: 'Source Page', to: 'Source Page (AI Draft)' },
+    ]);
+    const result = await service.cloneAndModify({ ...request, expectedSourceHash: String(preview.sourceHash) });
+    assert.equal(result.operationHash, preview.operationHash);
+    assert.deepEqual(result.topLevelChanges, preview.topLevelChanges);
+    const draft = mock.documents.get(String(result.documentId)) as JsonObject;
+    assert.equal(draft.slug, 'source-page-copy');
+    assert.equal(draft.url, 'source-page-copy');
+    assert.equal(mock.documents.get('source-page')?.url, 'source-page');
+  } finally { audit.close(); await mock.close(); }
+});
+
+test('routeField must exist as a string-like field in the content-type schema', async () => {
+  const mock = await startMockStrapi({ ...sourcePage(), url: 42 });
+  process.env.TEST_STRAPI_TOKEN = 'mock-token';
+  const audit = new AuditStore(resolve(tmpdir(), `safe-strapi-route-invalid-${randomUUID()}.sqlite`));
+  const config: AppConfig = { projects: { test: {
+    baseUrl: mock.baseUrl, tokenEnv: 'TEST_STRAPI_TOKEN', collection: 'pages', blocksField: 'blocks',
+    slugField: 'slug', routeField: 'url', contentTypeSchema: { attributes: { url: { type: 'integer' }, blocks: { type: 'dynamiczone' } } },
+  } } };
+  try {
+    await assert.rejects(new ContentService(config, audit).preview({ project: 'test', sourceDocumentId: 'source-page', operations: [] }), { code: 'CONFIG_ERROR' });
+  } finally { audit.close(); await mock.close(); }
+});
+
 test('lost PUT response is reconciled from persisted intent without a second write', async () => {
   const mock = await startMockStrapi(sourcePage());
   const { service, audit } = setup(mock.baseUrl);

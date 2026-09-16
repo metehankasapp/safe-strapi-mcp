@@ -70,6 +70,21 @@ export class SchemaCatalog {
     return this.normalizeObject(value, schema.attributes as JsonObject, this.project.contentType ?? 'document');
   }
 
+  async validateTopLevelStringField(field: string): Promise<void> {
+    let schema = this.project.contentTypeSchema;
+    if (!schema && this.project.schemaRoot && this.project.contentType) {
+      schema = JSON.parse(await readFile(resolve(
+        this.project.schemaRoot, 'src/api', this.project.contentType, 'content-types', this.project.contentType, 'schema.json',
+      ), 'utf8')) as JsonObject;
+    }
+    if (!schema) throw new AppError('CONFIG_ERROR', `Cannot validate routeField without a content-type schema: ${field}`);
+    const definition = (schema.attributes as JsonObject | undefined)?.[field] as JsonObject | undefined;
+    if (!definition) throw new AppError('CONFIG_ERROR', `Configured routeField does not exist in the content-type schema: ${field}`);
+    if (!['string', 'text', 'uid'].includes(String(definition.type))) {
+      throw new AppError('CONFIG_ERROR', `Configured routeField must be a string, text, or uid field: ${field}`);
+    }
+  }
+
   async normalizeDynamicZoneForWrite(blocks: unknown[]): Promise<unknown[]> {
     if (!this.project.schemaRoot && !this.project.componentSchemas) return normalizeForCreate(blocks, false) as unknown[];
     const output: unknown[] = [];

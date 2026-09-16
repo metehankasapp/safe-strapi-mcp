@@ -192,14 +192,28 @@ export class ContentService {
     return { blocks: result.blocks, changes: result.changes };
   }
 
+  private async cloneTopLevelChanges(source: JsonObject, project: ReturnType<typeof resolveProject>, cloneSlug: string, titleSuffix?: string): Promise<JsonObject[]> {
+    const changes: JsonObject[] = [{ field: project.slugField, from: source[project.slugField], to: cloneSlug }];
+    if (project.routeField && project.routeField !== project.slugField) {
+      await new SchemaCatalog(project).validateTopLevelStringField(project.routeField);
+      changes.push({ field: project.routeField, from: source[project.routeField], to: cloneSlug });
+    }
+    if (project.titleField && typeof source[project.titleField] === 'string') {
+      changes.push({ field: project.titleField, from: source[project.titleField], to: `${source[project.titleField]}${titleSuffix ?? ' (AI Draft)'}` });
+    }
+    return changes.filter(change => change.from !== change.to);
+  }
+
   async preview(request: CloneRequest): Promise<JsonObject> {
     const context = await this.source(request);
     const { blocks, changes } = await this.plan(context.source, context.project, request.operations);
     const sourceSlug = String(context.source[context.project.slugField] ?? context.documentId);
-    const operationHash = requestHash('clone', { ...request, expectedSourceHash: context.sourceHash });
+    const operationHash = requestHash('clone', { ...request, expectedSourceHash: context.sourceHash, routeField: context.project.routeField });
+    const proposedSlug = request.cloneSlug ?? idempotentSlug(sourceSlug, request.idempotencyKey ?? operationHash);
+    const topLevelChanges = await this.cloneTopLevelChanges(context.source, context.project, proposedSlug, request.titleSuffix);
     return {
       sourceDocumentId: context.documentId, sourceHash: context.sourceHash, operationHash, sourceSlug,
-      proposedSlug: request.cloneSlug ?? idempotentSlug(sourceSlug, request.idempotencyKey ?? operationHash),
+      proposedSlug, topLevelChanges,
       beforeCount: (context.source[context.project.blocksField] as unknown[]).length,
       afterCount: blocks.length, changes,
     };
@@ -213,7 +227,7 @@ export class ContentService {
   private async cloneAndModifyLocked(request: CloneRequest): Promise<JsonObject> {
     if (!request.idempotencyKey) throw new AppError('INVALID_REQUEST', 'idempotencyKey is required for write operations');
     if (!request.expectedSourceHash) throw new AppError('INVALID_REQUEST', 'expectedSourceHash is required for write operations');
-    const operationHash = requestHash('clone', request);
+    const operationHash = requestHash('clone', { ...request, routeField: this.client(request.project).project.routeField });
     const auditKey = this.auditKey(request.idempotencyKey);
     const auditProject = this.auditProject(request.project);
     const existing = await this.audit.get(auditKey);
@@ -227,8 +241,10 @@ export class ContentService {
     const sourceSlug = String(context.source[context.project.slugField] ?? context.documentId);
     const cloneSlug = request.cloneSlug ?? idempotentSlug(sourceSlug, request.idempotencyKey);
     const catalog = new SchemaCatalog(context.project);
+    const topLevelChanges = await this.cloneTopLevelChanges(context.source, context.project, cloneSlug, request.titleSuffix);
     const createData = await catalog.normalizeDocumentForWrite(context.source);
     createData[context.project.slugField] = cloneSlug;
+    if (context.project.routeField) createData[context.project.routeField] = cloneSlug;
     createData[context.project.blocksField] = await catalog.normalizeDynamicZoneForWrite(blocks);
     if (context.project.titleField && typeof createData[context.project.titleField] === 'string') {
       createData[context.project.titleField] = `${createData[context.project.titleField]}${request.titleSuffix ?? ' (AI Draft)'}`;
@@ -250,7 +266,7 @@ export class ContentService {
         await this.assertSourceHash(context.client, context.documentId, context.locale, context.sourceHash);
         const recoveredId = String(recovered.documentId);
         await this.audit.recordOwned({ project: auditProject, documentId: recoveredId, locale: context.locale, slug: cloneSlug, sourceDocumentId: context.documentId, sourceHash: context.sourceHash, createdByJob: auditKey, lastHash: contentHash(recovered) });
-        const result = { documentId: recoveredId, slug: cloneSlug, sourceDocumentId: context.documentId, sourceHash: context.sourceHash, draftHash: contentHash(recovered), operationHash, changes, recovered: true, status: 'draft' };
+        const result = { documentId: recoveredId, slug: cloneSlug, sourceDocumentId: context.documentId, sourceHash: context.sourceHash, draftHash: contentHash(recovered), operationHash, changes, topLevelChanges, recovered: true, status: 'draft' };
         await this.audit.complete(auditKey, result);
         return result;
       }
@@ -269,7 +285,7 @@ export class ContentService {
       await this.assertSourceHash(context.client, context.documentId, context.locale, context.sourceHash);
       const draftHash = contentHash(fetched);
       await this.audit.updateOwnedHash(auditProject, createdId, context.locale, draftHash);
-      const result = { documentId: createdId, slug: cloneSlug, sourceDocumentId: context.documentId, sourceHash: context.sourceHash, draftHash, operationHash, status: 'draft', changes, verified: true };
+      const result = { documentId: createdId, slug: cloneSlug, sourceDocumentId: context.documentId, sourceHash: context.sourceHash, draftHash, operationHash, status: 'draft', changes, topLevelChanges, verified: true };
       await this.audit.complete(auditKey, result);
       return result;
     } catch (error) {

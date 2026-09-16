@@ -12,6 +12,7 @@ const projectSchema = z.object({
   collection: z.string().regex(/^[a-zA-Z0-9_-]+$/),
   blocksField: z.string().min(1),
   slugField: z.string().min(1),
+  routeField: z.string().min(1).optional(),
   titleField: z.string().min(1).optional(),
   populate: z.string().min(1).optional(),
   defaultLocale: z.string().min(1).optional(),

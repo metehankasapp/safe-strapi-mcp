@@ -6,6 +6,7 @@ export interface ProjectConfig {
   collection: string;
   blocksField: string;
   slugField: string;
+  routeField?: string;
   titleField?: string;
   populate?: string;
   defaultLocale?: string;

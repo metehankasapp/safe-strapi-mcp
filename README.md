@@ -70,7 +70,7 @@ Use the absolute executable path if your desktop client does not inherit your sh
 
 The source directory must contain `src/api` and `src/components`. Collection types with Draft & Publish, a UID field, and dynamic zones are discovered automatically. Each zone is named `content-type:zone` in `list_projects`. Single types are not supported by automatic setup.
 
-Optional env variables: `STRAPI_CONTENT_TYPE`, `STRAPI_BLOCKS_FIELD`, `STRAPI_SLUG_FIELD`, `STRAPI_TITLE_FIELD`, `STRAPI_LOCALE` (defaults to `en`). Set `STRAPI_TOKEN_ENV=MY_EXISTING_TOKEN` to read a differently named token variable. Use HTTPS for remote CMS connections.
+Optional env variables: `STRAPI_CONTENT_TYPE`, `STRAPI_BLOCKS_FIELD`, `STRAPI_SLUG_FIELD`, `STRAPI_ROUTE_FIELD`, `STRAPI_TITLE_FIELD`, `STRAPI_LOCALE` (defaults to `en`). Set `STRAPI_ROUTE_FIELD=url` only when the frontend routes by a separate top-level field that must track cloned slugs. The field must exist in the content-type schema and be string-like; preview reports the change explicitly. Set `STRAPI_TOKEN_ENV=MY_EXISTING_TOKEN` to read a differently named token variable. Use HTTPS for remote CMS connections.
 
 Only a remote URL and token? Obtain the schema source from the project owner, or pass `--config /absolute/path/projects.json` with this structure:
 
@@ -83,6 +83,7 @@ Only a remote URL and token? Obtain the schema source from the project owner, or
       "collection": "pages",
       "blocksField": "blocks",
       "slugField": "slug",
+      "routeField": "url",
       "titleField": "title",
       "schemaRoot": "/absolute/path/strapi",
       "contentType": "page",

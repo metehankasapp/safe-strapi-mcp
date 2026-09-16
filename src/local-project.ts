@@ -27,6 +27,8 @@ export async function localProject(env: NodeJS.ProcessEnv = process.env): Promis
       const attributes = schema.attributes as Record<string, JsonObject>;
       const slug = env.STRAPI_SLUG_FIELD ?? Object.keys(attributes).find(key => attributes[key].type === 'uid');
       if (!slug || !attributes[slug]) continue;
+      const routeField = env.STRAPI_ROUTE_FIELD;
+      if (routeField && !attributes[routeField]) throw new AppError('CONFIG_ERROR', `STRAPI_ROUTE_FIELD does not exist in ${type.name}: ${routeField}`);
       for (const [zone, definition] of Object.entries(attributes)) {
         if (definition.type !== 'dynamiczone' || (env.STRAPI_BLOCKS_FIELD && env.STRAPI_BLOCKS_FIELD !== zone)) continue;
         const params = new URLSearchParams();
@@ -50,6 +52,7 @@ export async function localProject(env: NodeJS.ProcessEnv = process.env): Promis
         projects[`${type.name}:${zone}`] = {
           baseUrl: env.STRAPI_URL, tokenEnv: env.STRAPI_TOKEN_ENV ?? 'STRAPI_API_TOKEN',
           collection: schema.info.pluralName, blocksField: zone, slugField: slug,
+          routeField,
           titleField: title, defaultLocale: env.STRAPI_LOCALE ?? 'en',
           contentType: type.name, contentTypeSchema: schema, componentSchemas: components,
           populate: params.toString(),
