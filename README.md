@@ -19,20 +19,52 @@ You can also run it without a global install using `npx safe-strapi-mcp`.
 
 ## Configure your project
 
-Add to a private env file:
+### 1. Create a Strapi API token
+
+In Strapi Admin, open **Settings → Global settings → API Tokens → Create new API Token**. Choose **Custom** and grant only:
+
+- `find` and `findOne` for every collection the page populates, including related content;
+- `find` and `findOne` for Upload/media when the page contains assets;
+- `create` and `update` for the collection types whose drafts the MCP may create.
+
+`delete` and publish permissions are not required. Save the token when Strapi displays it; Strapi does not show the full value again. A token that can list pages but cannot read populated relations or media may fail during `inspect_page` with HTTP 403.
+
+### 2. Store it locally
+
+Create a private env file outside version control:
 
 ```dotenv
 STRAPI_URL=http://localhost:1337
 STRAPI_API_TOKEN=
 ```
 
-Create a Strapi token with find/findOne/create/update permissions on the required collection and read access to its media and relations. No hosted account or MCP access key is needed for stdio.
+Paste the token after `STRAPI_API_TOKEN=`. Use the Strapi origin for `STRAPI_URL`, without `/admin` or `/api`. Never commit this file or paste the token into chat. No hosted account or MCP access key is needed for stdio.
+
+Add the local state and env file to the Strapi project's `.gitignore`:
+
+```gitignore
+.env.safe-strapi
+.safe-strapi/
+```
+
+### 3. Connect your MCP client
 
 Configure your MCP client to run:
 
 ```sh
 safe-strapi-mcp --env-file /absolute/path/strapi/.env --project-root /absolute/path/strapi
 ```
+
+Codex CLI can register the published package directly:
+
+```sh
+codex mcp add safe-strapi -- \
+  npm exec --yes --package=safe-strapi-mcp -- safe-strapi-mcp \
+  --env-file /absolute/path/strapi/.env.safe-strapi \
+  --project-root /absolute/path/strapi
+```
+
+Restart Codex, then begin with a read-only request: `Use safe-strapi. List projects, find the homepage, and inspect it. Do not create or update anything.` Only continue to preview after this succeeds.
 
 Use the absolute executable path if your desktop client does not inherit your shell PATH. The tool loads the env file directly; do not paste secrets into chat. Environment variables already present in the process take precedence over the file.
 
