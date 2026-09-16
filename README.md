@@ -112,7 +112,7 @@ Concurrent MCP writes sharing the same audit database are serialized. Draft and 
 
 The audit database defaults to `.safe-strapi/audit.sqlite` inside the selected project; set `AUDIT_DB` to override it. Preserve this database between sessions. Add `.safe-strapi/` and env files to your project's gitignore. Protect them with local filesystem permissions.
 
-Each installation uses its own credentials and state. Shared HTTP hosting is optional: set `TRANSPORT=http` and configure strong authentication. Independent users must not share one legacy API key. PostgreSQL/OIDC support is available for custom server deployments.
+Each installation uses its own local credentials and state. The package supports stdio only and does not require or accept an MCP access key.
 
 ## Development checks
 
@@ -124,7 +124,7 @@ npm test
 npm pack --dry-run
 ```
 
-Tests include a 100-component preservation scenario, owned-draft checks, idempotency conflicts, lost-response recovery, cross-instance serialization, HTTP security checks and env-file onboarding through the real stdio protocol against mocked Strapi REST. Local acceptance additionally exercises a real Strapi 5 API without using the admin UI. These tests do not certify every Strapi plugin or version.
+Tests include a 100-component preservation scenario, owned-draft checks, idempotency conflicts, lost-response recovery, cross-instance serialization, and env-file onboarding through the real stdio protocol against mocked Strapi REST. Local acceptance additionally exercises a real Strapi 5 API without using the admin UI. These tests do not certify every Strapi plugin or version.
 
 Independent tooling; not affiliated with or endorsed by Strapi.
 

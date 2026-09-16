@@ -6,14 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
-    "deploy": "wrangler deploy",
-    "db:migrate:local": "wrangler d1 migrations apply safe-strapi --local",
-    "db:migrate:remote": "wrangler d1 migrations apply safe-strapi --remote"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "agents": "0.22.0",
-    "zod": "4.1.5"
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260908.1",
