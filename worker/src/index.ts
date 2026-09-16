@@ -11,6 +11,7 @@ interface Env {
   COORDINATOR: DurableObjectNamespace;
   ASSETS: Fetcher;
   MCP_API_KEY: string;
+  REMOTE_MCP_ENABLED?: string;
   PROJECTS_JSON?: string;
   [key: string]: unknown;
 }
@@ -72,6 +73,16 @@ export default {
       } catch { return Response.json({ ok: false }, { status: 503 }); }
     }
     if (url.pathname !== '/mcp') return env.ASSETS.fetch(request);
+    if (env.REMOTE_MCP_ENABLED !== 'true') {
+      return Response.json({
+        ok: false,
+        error: {
+          code: 'REMOTE_MCP_DISABLED',
+          message: 'Hosted MCP is not offered. Use the local stdio setup; no MCP API key is required.',
+          setup: 'https://safe-strapi-mcp.metehankasapp.workers.dev/#master-prompt',
+        },
+      }, { status: 410, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+    }
     if (request.method !== 'POST') return Response.json({ ok: false, error: { code: 'INVALID_REQUEST', message: 'Method not allowed' } }, { status: 405 });
     const header = request.headers.get('authorization');
     const token = header?.startsWith('Bearer ') ? header.slice(7) : '';

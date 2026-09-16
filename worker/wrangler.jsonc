@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "observability": { "enabled": true },
+  "vars": { "REMOTE_MCP_ENABLED": "false" },
   "assets": {
     "directory": "../web/out",
     "binding": "ASSETS",

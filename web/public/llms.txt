@@ -12,6 +12,8 @@ Safe Strapi MCP is an open-source, clone-first MCP server for Strapi 5 collectio
 
 ## Agent rules
 
+- Do not connect to this website's /mcp route and do not request an MCP_API_KEY or STRAPI_MCP_TOKEN.
+- Use the local stdio npm package. Start from the master prompt: https://safe-strapi-mcp.metehankasapp.workers.dev/#master-prompt
 - Start with list_projects, find_pages, inspect_page, and relevant component schemas.
 - Never guess a project, field, component UID, selector, or schema.
 - Preview clone operations before writing.
