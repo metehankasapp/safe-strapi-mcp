@@ -10,6 +10,10 @@ export interface MockStrapi {
   baseUrl: string;
   documents: Map<string, JsonObject>;
   requests: Array<{ method: string; path: string }>;
+  writePayloads: JsonObject[];
+  setTransformNextWrite(transform: (document: JsonObject) => JsonObject): void;
+  setAfterNextGet(callback: () => void): void;
+  setBeforeNextWrite(callback: () => void): void;
   setCorruptNextWrite(value: boolean): void;
   setMutateSourceAfterWrite(value: boolean): void;
   setDropNextWriteResponse(value: boolean): void;
@@ -19,6 +23,10 @@ export interface MockStrapi {
 export async function startMockStrapi(source: JsonObject): Promise<MockStrapi> {
   const documents = new Map<string, JsonObject>([[String(source.documentId), copy(source)]]);
   const requests: Array<{ method: string; path: string }> = [];
+  const writePayloads: JsonObject[] = [];
+  let transformNextWrite: ((document: JsonObject) => JsonObject) | undefined;
+  let afterNextGet: (() => void) | undefined;
+  let beforeNextWrite: (() => void) | undefined;
   let sequence = 0;
   let corruptNextWrite = false;
   let mutateSourceAfterWrite = false;
@@ -34,6 +42,7 @@ export async function startMockStrapi(source: JsonObject): Promise<MockStrapi> {
       const document = documents.get(decodeURIComponent(match[1]));
       response.statusCode = document ? 200 : 404;
       response.end(JSON.stringify(document ? { data: copy(document) } : { error: { message: 'Not found' } }));
+      if (afterNextGet) { const callback = afterNextGet; afterNextGet = undefined; callback(); }
       return;
     }
 
@@ -48,8 +57,10 @@ export async function startMockStrapi(source: JsonObject): Promise<MockStrapi> {
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
       const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { data: JsonObject };
+      writePayloads.push(copy(parsed.data));
+      if (beforeNextWrite) { const callback = beforeNextWrite; beforeNextWrite = undefined; callback(); }
       const documentId = request.method === 'POST' ? `owned-${++sequence}` : decodeURIComponent(String(match?.[1]));
-      const stored: JsonObject = {
+      let stored: JsonObject = {
         ...(request.method === 'PUT' ? copy(documents.get(documentId) ?? {}) : {}),
         ...copy(parsed.data),
         documentId,
@@ -59,6 +70,7 @@ export async function startMockStrapi(source: JsonObject): Promise<MockStrapi> {
         updatedAt: `2026-01-01T00:00:0${sequence}.000Z`,
         locale: url.searchParams.get('locale') ?? 'en',
       };
+      if (transformNextWrite) { stored = transformNextWrite(stored); transformNextWrite = undefined; }
       if (corruptNextWrite) {
         stored.title = 'CORRUPTED';
         corruptNextWrite = false;
@@ -86,6 +98,10 @@ export async function startMockStrapi(source: JsonObject): Promise<MockStrapi> {
     baseUrl: `http://127.0.0.1:${address.port}`,
     documents,
     requests,
+    writePayloads,
+    setTransformNextWrite: (transform) => { transformNextWrite = transform; },
+    setAfterNextGet: (callback) => { afterNextGet = callback; },
+    setBeforeNextWrite: (callback) => { beforeNextWrite = callback; },
     setCorruptNextWrite: (value) => { corruptNextWrite = value; },
     setMutateSourceAfterWrite: (value) => { mutateSourceAfterWrite = value; },
     setDropNextWriteResponse: (value) => { dropNextWriteResponse = value; },

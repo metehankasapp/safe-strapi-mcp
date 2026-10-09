@@ -4,6 +4,18 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `preview_modify_page` and `modify_page` tools for patching and inserting components in an existing page draft without cloning or publishing.
+- Persisted preview hashes, revision checks, component ID preservation, destructive-operation guards and lost-response reconciliation for in-place updates.
+- `allowInPlaceEditing` config, `STRAPI_ALLOW_IN_PLACE_EDITING` env and `--allow-in-place-editing` auto-discovery flag, all disabled by default.
+- Isolated real Strapi acceptance script covering nested IDs, media/relations, MCP stdio insertion and unchanged published content.
+
+### Changed
+
+- SQLite write locks serialize operations across tenants sharing an audit database; audit records remain tenant-isolated.
+- Rich-text blocks preserve embedded application data during normalization.
+
 ## [0.2.0] - 2026-09-16
 
 ### Added

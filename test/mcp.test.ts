@@ -32,7 +32,9 @@ test('stdio server exposes only the safe tool surface', async () => {
       'list_components',
       'list_projects',
       'modify_owned_draft',
+      'modify_page',
       'preview_clone_and_modify',
+      'preview_modify_page',
       'replace_component',
       'validate_draft',
     ]);

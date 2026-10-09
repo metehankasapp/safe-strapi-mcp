@@ -44,6 +44,16 @@ const cloneInput = {
   operations: z.array(operation).max(100),
 };
 
+const inPlaceInput = {
+  project: z.string().min(1),
+  documentId: z.string().min(1),
+  locale: z.string().min(1).optional(),
+  operations: z.array(z.discriminatedUnion('type', [
+    z.object({ type: z.literal('insert'), component: jsonObject, position }).strict(),
+    z.object({ type: z.literal('patch'), selector, changes: jsonObject }).strict(),
+  ])).min(1).max(100),
+};
+
 function response(value: unknown) {
   const structuredContent = { ok: true, data: value };
   return { structuredContent, content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }] };
@@ -74,6 +84,20 @@ export function createMcpServer(service: ContentService): McpServer {
     description: 'List configured Strapi projects. Never exposes API tokens.',
     inputSchema: {},
   }, async () => safe('mcp:read', () => service.listProjects()));
+
+  server.registerTool('preview_modify_page', {
+    description: 'Preview patch/insert operations on an existing page draft without cloning or writing to Strapi. Requires project opt-in. Preserves other components and their IDs; array replacement, clearing fields and changing existing media/relations are blocked. Returns persisted preview hashes required by modify_page.',
+    inputSchema: inPlaceInput,
+  }, async (args) => safe('mcp:read', () => service.previewModifyPage(args)));
+
+  server.registerTool('modify_page', {
+    description: 'Apply a persisted preview to an existing page draft without cloning or publishing. Requires project opt-in, both preview hashes and an idempotency key. Only patch/insert are supported. Verifies preserved component IDs and content after re-fetch. REST revision checks cannot prevent an external edit racing the final write.',
+    inputSchema: { ...inPlaceInput,
+      expectedPageHash: z.string().regex(/^[a-f0-9]{64}$/),
+      expectedOperationHash: z.string().regex(/^[a-f0-9]{64}$/),
+      idempotencyKey: z.string().min(8).max(200),
+    },
+  }, async (args) => safe('mcp:write', () => service.modifyPage(args)));
 
   server.registerTool('find_pages', {
     description: 'Find draft-visible pages by title or slug before inspecting one.',

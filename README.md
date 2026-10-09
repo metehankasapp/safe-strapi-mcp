@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/safe-strapi-mcp.svg)](https://www.npmjs.com/package/safe-strapi-mcp)
 [![license](https://img.shields.io/npm/l/safe-strapi-mcp.svg)](LICENSE)
 
-Run content operations against your own Strapi 5 installation from a local MCP client. The service creates draft copies, applies ordered component changes, and verifies the result and source hash. It does not publish pages.
+Run content operations against your own Strapi 5 installation from a local MCP client. By default the service creates draft copies, applies ordered component changes, and verifies the result and source hash. An explicit project opt-in also permits previewed patch/insert operations on an existing page draft. It does not publish pages.
 
 ## Install
 
@@ -97,9 +97,78 @@ For custom config, populate must include every nested component, media and relat
 
 ## Use
 
-Ask your client to list projects, inspect the page, preview operations, and create the reviewed draft with its source hash and a stable idempotency key. Then validate and compare it. Source pages remain read-only. Existing drafts must be registered in this installation's ownership database.
+For the default clone workflow, ask your client to list projects, inspect the page, preview operations, and create the reviewed draft with its source hash and a stable idempotency key. Then validate and compare it. Source pages remain read-only in this workflow. Owned-draft tools require registration in this installation's ownership database.
 
 Tools: `list_projects`, `find_pages`, `inspect_page`, `list_components`, `get_component_schema`, `preview_clone_and_modify`, `clone_page_and_modify`, `inspect_owned_draft`, `modify_owned_draft`, `duplicate_component`, `replace_component`, `validate_draft`, `compare_pages`.
+
+### Edit an existing page draft without cloning (opt-in)
+
+This feature is available in the current source branch; it is not in the published
+0.2.0 package. Build the source to use it before the next release.
+
+For auto-discovered projects, set `STRAPI_ALLOW_IN_PLACE_EDITING=true` in your
+private env file or pass `--allow-in-place-editing`. For a custom projects config,
+set `allowInPlaceEditing: true` on each selected project. The CLI flag does not
+override custom config. `list_projects` reports whether this is enabled.
+
+Use `preview_modify_page` with a project, documentId, locale and ordered
+`operations`. It records the plan locally and returns `pageHash`, `operationHash`
+and differences. Call `modify_page` with the same inputs plus
+`expectedPageHash: pageHash`, `expectedOperationHash: operationHash` and a stable
+`idempotencyKey`. A matching preview must exist in this installation's audit DB.
+
+Example operations to edit the second block and its nested single component:
+
+```json
+[
+  {
+    "type": "patch",
+    "selector": { "index": 1 },
+    "changes": { "title": "Updated features", "content": { "description": "Updated description" } }
+  }
+]
+```
+
+Use field names from `get_component_schema`; the example's fields must exist in
+your schema. Natural-language request:
+
+> Edit only the features component on the existing model page using
+> preview_modify_page, then apply the reviewed preview with modify_page.
+> Preserve other blocks and their order. Do not clone or publish.
+
+Only `patch` and `insert` are accepted. Insertion supports start/end/before/after
+positions and preserves existing blocks' relative order. Supply every schema
+attribute of inserted components, including nested components; explicitly use
+null or empty arrays for unused optional fields. Do not supply component IDs.
+Existing media/relation references can be supplied as scalar IDs/document IDs.
+
+The first version rejects remove/replace/move/duplicate operations, changes to
+component identity/type, clearing nonempty fields, replacing arrays (including
+repeatable components), replacing existing objects and changes to existing
+media/relation references. Nested single component and JSON object fields can be
+patched. Existing component IDs are retained and checked after writing.
+
+An existing draft and full collection/component schemas are required. Missing
+populated fields, private fields, unsupported field types, single types and
+content types without Draft & Publish are rejected. The write changes only the
+configured dynamic zone; it does not change slug, route, title or other zones.
+No ownership record is needed or created for the existing page. A failed or lost
+write response is reconciled by re-reading; if the result cannot be verified,
+`WRITE_OUTCOME_UNKNOWN` blocks another write with the same key. There is no
+automatic rollback.
+
+REST revision checks cannot prevent an external editor from racing the final
+GET/PUT. The result includes this limitation in `concurrency`. A fully atomic
+guarantee requires a separate Strapi-side conditional-update endpoint, which this
+version does not implement.
+
+### Use alongside the official Strapi MCP
+
+Safe Strapi MCP uses a Content API Token and REST. The official MCP uses an Admin
+Token and `/mcp`; keep their credentials separate. Use this service's opt-in
+tools for protected dynamic-zone edits and the official MCP for general content
+operations. Where supported, restrict the official token's update permissions on
+protected fields: writing through its tools bypasses these preservation checks.
 
 Copy-ready workflows for discovery, JSON insertion, component reordering, long pages, team review drafts, and conflict recovery are available in the [prompt cookbook](https://safe-strapi-mcp.metehankasapp.workers.dev/prompts). AI clients can read the same guide directly as [Markdown](https://safe-strapi-mcp.metehankasapp.workers.dev/prompts.md) or discover key resources through [`llms.txt`](https://safe-strapi-mcp.metehankasapp.workers.dev/llms.txt).
 
@@ -126,6 +195,17 @@ npm pack --dry-run
 ```
 
 Tests include a 100-component preservation scenario, owned-draft checks, idempotency conflicts, lost-response recovery, cross-instance serialization, and env-file onboarding through the real stdio protocol against mocked Strapi REST. Local acceptance additionally exercises a real Strapi 5 API without using the admin UI. These tests do not certify every Strapi plugin or version.
+
+To verify in-place editing with an isolated real Strapi instance, run after build:
+
+```sh
+node scripts/in-place-acceptance.mjs /absolute/path/to/strapi-project-with-node_modules
+```
+
+The script reuses installed dependencies but creates a temporary app, SQLite DB
+and test token; it never loads that project's config, env or customer data. It
+checks middle/nested patches, component IDs, media/relations, insertion over MCP
+stdio and preservation of the published version, then removes the temporary app.
 
 Independent tooling; not affiliated with or endorsed by Strapi.
 

@@ -20,6 +20,7 @@ const projectSchema = z.object({
   contentType: z.string().regex(/^[a-zA-Z0-9_-]+$/).optional(),
   componentSchemas: z.record(z.string(), z.record(z.unknown())).optional(),
   contentTypeSchema: z.record(z.unknown()).optional(),
+  allowInPlaceEditing: z.boolean().default(false),
 });
 
 const configSchema = z.object({
