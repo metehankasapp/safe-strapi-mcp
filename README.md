@@ -97,7 +97,7 @@ For custom config, populate must include every nested component, media and relat
 
 ## Use
 
-For the default clone workflow, ask your client to list projects, inspect the page, preview operations, and create the reviewed draft with its source hash and a stable idempotency key. Then validate and compare it. Source pages remain read-only in this workflow. Owned-draft tools require registration in this installation's ownership database.
+For the default clone workflow, ask your client to list projects, inspect the page, preview operations, and create the reviewed draft with its source hash and a stable idempotency key. Then validate and compare it. Source pages remain read-only in this workflow. Owned-draft tools require registration in this installation's ownership database. `modify_owned_draft` uses create normalization and may regenerate retained component IDs; its content-preservation behavior differs from direct editing. It has no dedicated persisted preview tool: inspect, review an AI-side plan, then pass the matching draft hash.
 
 Tools: `list_projects`, `find_pages`, `inspect_page`, `list_components`, `get_component_schema`, `preview_clone_and_modify`, `clone_page_and_modify`, `inspect_owned_draft`, `modify_owned_draft`, `duplicate_component`, `replace_component`, `validate_draft`, `compare_pages`.
 
