@@ -93,7 +93,7 @@ First inspect the page and relevant component schemas. Propose the smallest set 
 ```text
 Inspect owned draft <draft-document-id> in <project-name>. Show its latest draft hash and current component order.
 
-Preview <requested-changes> against that exact revision. Use a new stable idempotency key. If approved, modify only this owned draft, re-fetch it, validate it, compare it with its source, and confirm the source remains unchanged.
+Show an AI-side before/after plan for <requested-changes> against that exact revision; modify_owned_draft has no dedicated persisted preview tool. Use a new stable idempotency key. If approved, modify only this owned draft, re-fetch it, validate it, compare it with its source, and confirm the source remains unchanged.
 ```
 
 ## 8. Recover safely from conflicts
@@ -216,3 +216,108 @@ still cannot clear content. A lost rollback response can only be reconciled by
 re-reading with the same inputs/key, never blindly sending a second update.
 Keep the local audit database private: it contains content snapshots. These
 new tools are in the current source build, not the published 0.2.0 package.
+
+
+## 12. Remote acceptance: one disposable draft, step by step
+
+This sequence was verified through MCP stdio against a remote Strapi server.
+Every write targeted one newly created unpublished test draft. Full before/after
+hashes of all original draft and published pages matched. Credentials, schemas,
+content snapshots and execution records remain private. These prompts describe
+individual stages; they are not instructions to run all writes without review.
+
+Replace placeholders and inspect schemas before choosing actual field names.
+Use a unique test slug and retain the same private audit database throughout.
+
+| Step | Tool path | Verified result |
+| --- | --- | --- |
+| Read and baseline | list_projects, find_pages, inspect_page | Read-only discovery and source snapshot |
+| Create test page | preview_clone_and_modify → clone_page_and_modify | New unpublished owned draft; source unchanged |
+| Edit middle and nested fields | preview_modify_page → modify_page | Surrounding content and all existing IDs preserved |
+| Undo the field edit | list_page_operations → preview_rollback_page → rollback_page | Exact recorded values and IDs restored |
+| Insert between blocks | preview_modify_page → modify_page | One added block; old content, order and IDs preserved |
+| Check direct-edit guards | Direct clearing, remove, insert rollback attempts | Rejected; page unchanged |
+| Clear optional test copy | inspect_owned_draft → AI plan → modify_owned_draft | Selected optional field emptied; other content retained |
+| Remove inserted middle block | inspect_owned_draft → AI plan → modify_owned_draft | Selected block removed; remaining content/order retained |
+| Change after rollback preview | preview_rollback_page → later edit → rollback_page | PAGE_CHANGED; later edit retained |
+| Final verification | inspect_page, validate_draft, list_page_operations; baseline comparison | Original pages unchanged; test draft unpublished |
+
+**Owned-draft limitation:** `modify_owned_draft` uses create normalization.
+Retained component IDs were regenerated during the clearing/removal stages.
+Use direct patch/insert/rollback when identity preservation is required. The
+owned-draft route is restricted to drafts registered by this MCP installation;
+it is not a deletion route for arbitrary existing pages. Native persisted
+preview contracts apply to clone/direct-edit/rollback tools. For owned-draft
+updates, the AI must show its plan from the latest inspection and pass the
+matching `expectedDraftHash`; the MCP does not persist a dedicated preview.
+There is no page-record deletion tool. Required fields must remain valid.
+
+### A. Create only the disposable test draft
+
+```text
+Use Safe Strapi MCP for <project-name>. Read <reference-page> and record its
+full hash. Preview a new draft with slug <unique-test-slug> and a title suffix
+" (MCP TEST — DO NOT PUBLISH)". Use schema-valid synthetic test components:
+a heading, two middle blocks including a nested button, and a final text block.
+Show the resulting order and changed fields. After approval, create and validate
+only this draft. Confirm the source hash is unchanged. Never publish.
+```
+
+### B. Edit, undo, then insert
+
+```text
+Use Safe Strapi MCP on test draft <test-document-id> only.
+Preview a middle block title/copy change and its nested button label using
+preview_modify_page. Preserve every other value and existing component ID.
+After approval, apply with both preview hashes and a unique idempotency key.
+Verify the result and record operationId.
+```
+
+```text
+Use Safe Strapi MCP to preview rollback of <operation-id> on <test-document-id>.
+Show the recorded values to restore. After approval, apply the rollback with
+both preview hashes and a new idempotency key. Verify exact values and IDs.
+```
+
+```text
+Use Safe Strapi MCP to preview insertion of <schema-valid-component-json>
+after block <index> on test draft <test-document-id>. After approval, apply
+with both hashes and a new key. Verify existing content, order and IDs.
+Do not attempt to undo an insertion through rollback_page. Never publish.
+```
+
+### C. Clear copy and remove the inserted block on the owned test draft
+
+```text
+Use Safe Strapi MCP only on owned test draft <test-document-id>.
+Inspect its current revision. Show an AI-side before/after plan to empty the
+optional <field-name> on block <index>. Explain that owned-draft normalization
+may regenerate component IDs. After approval, call modify_owned_draft with
+that exact expectedDraftHash and a new key. Verify all other content remains.
+Do not touch the source or publish.
+```
+
+```text
+Use Safe Strapi MCP only on owned test draft <test-document-id>.
+Inspect again and show the exact inserted block at <index> and resulting order.
+After approval, remove only that block using modify_owned_draft, the latest
+expectedDraftHash and a new key. Verify every remaining block's content/order
+and validate the draft. Report any regenerated IDs. Never publish.
+```
+
+### D. Verify conflict handling and original-page preservation
+
+```text
+Use Safe Strapi MCP only on test draft <test-document-id>.
+Record a verified direct patch, then preview its rollback. Make another approved
+test edit. Confirm the stale rollback returns PAGE_CHANGED and does not change
+the later content. Compare every original draft/published page with the initial
+full snapshots; report unchanged hashes, the final draft status and test steps.
+Do not publish, delete any page record or change original pages.
+```
+
+Remote CMS acceptance verifies CMS content state. Public-site rendering is a
+separate check: the acceptance run's public frontend returned HTTP 403, so its
+visibility was not verified. A published-only static frontend also requires
+publication and a separate build/deployment to display new content; neither was
+performed in this sequence.
