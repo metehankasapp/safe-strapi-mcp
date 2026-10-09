@@ -321,3 +321,48 @@ separate check: the acceptance run's public frontend returned HTTP 403, so its
 visibility was not verified. A published-only static frontend also requires
 publication and a separate build/deployment to display new content; neither was
 performed in this sequence.
+
+
+## 13. Actual Codex conversation acceptance
+
+The remote workflow was additionally verified in one saved Codex CLI session,
+using `codex exec --json` and subsequent `codex exec resume <session-id>` turns.
+This is separate from the earlier direct SDK acceptance: the model chose and
+called the MCP tools, returned previews, waited for follow-up approval prompts,
+applied approved changes and checked the resulting content.
+
+An authorized acceptance runner supplied those separate approval prompts. A
+private test boundary restricted writes to one newly created disposable draft.
+This verifies the model workflow, not a UI's human authentication or independent
+human-approval enforcement. Credentials stayed in the local MCP process. Full
+prompts, responses, JSONL events, snapshots and session identifiers stay private.
+
+| Conversation turn | Observed behavior |
+| --- | --- |
+| Request a new test draft preview; prohibit creation | Listed projects, inspected the reference, checked slug availability, previewed cloning, re-read the source and waited |
+| Approve creation; request a middle/nested edit preview | Created and validated one draft, inspected schemas, previewed the three field changes and waited |
+| Approve the field edit; request rollback preview | Applied the exact preview, re-read IDs/content, queried recorded history, previewed rollback and waited |
+| Approve rollback; request an insertion preview | Restored exact recorded values and IDs, inspected the insertion schema, previewed insertion and waited |
+| Approve insertion; ask to clear the inserted copy | Preserved existing IDs; chose an owned-draft plan, disclosed the lack of native preview/ID guarantees and waited |
+| Approve clearing; request middle-block removal plan | Emptied only the optional field, reported regenerated IDs, showed the exact block/order and waited |
+| Approve removal; request a conflict-test edit preview | Removed only the inserted test block, reported IDs and previewed one field edit |
+| Explicitly authorize the controlled stale-rollback test | Applied two separate test edits, attempted the old rollback once, reported PAGE_CHANGED, then only re-read |
+
+All responses used **Target, Action, Changes, Protection, Publication, Rollback,
+Approval**, translated consistently. Independent REST comparisons confirmed exact
+field edits, patch rollback, preserved IDs on direct edits/insertion, and retained
+content/order on owned clearing/removal. Every pre-existing draft and published
+page matched its original full hash; the new test page remained unpublished.
+The Codex event stream contained no shell commands or file changes.
+
+Two onboarding attempts were blocked by the client's MCP approval policy; the
+model reported the error and performed no write. Only the selected, explicitly
+authorized test server's session policy was adjusted. An invalid selector in a
+preview was also rejected; the model corrected it before applying that edit. Client
+configuration errors must not be reported as successful content operations.
+
+For your own acceptance run, use the prompts in section 12 as separate turns:
+request a preview, read the response, send an explicit approval for that exact
+plan, then request the next preview. Keep the same private audit database and
+session. Do not present an owned-draft AI plan as a native persisted preview.
+Public-site rendering remains a separate, unverified check in this acceptance.

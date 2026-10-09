@@ -177,3 +177,16 @@ Branch: `feat/structured-preview-and-rollback` → `main`.
 - [x] Test kayıtlarını git dışında private tut; docs'a genel prompt/araç/sonuç sırasını ekle.
 - [ ] Public frontend görünürlüğünü ayrıca doğrula; bu testte HTTP 403 nedeniyle doğrulanamadı.
 - [ ] Page-record silme: mevcut MCP araçlarında desteklenmiyor; hiçbir kayıt silinmedi.
+
+
+## 10. Gerçek Codex oturumu ile kabul testi — 2026-10-09
+
+- [x] SDK testi ile gerçek AI-client testini ayır; tek kaydedilmiş Codex oturumunda ilerle.
+- [x] Prompt → araç seçimi → gerçek önizleme → ayrı onay mesajı → MCP yazma akışını doğrula.
+- [x] Yeni test draftı oluşturma, orta/nested düzenleme, geri alma ve araya eklemeyi doğrula.
+- [x] AI'nin boşaltma/kaldırma için owned-draft yolunu seçtiğini, native preview/ID sınırlarını açıkladığını doğrula.
+- [x] Gerçek stale rollback çağrısının PAGE_CHANGED döndürdüğünü; hata sonrası yalnız okuma yapıldığını doğrula.
+- [x] Tüm yanıtların yedi sabit etiketi kullandığını; shell bypass veya dosya değişikliği olmadığını doğrula.
+- [x] Bağımsız canlı API karşılaştırmasıyla mevcut tüm draft/published hash'lerinin değişmediğini doğrula.
+- [x] Client onay ayarı hatasını ve invalid selector düzeltmesini gerçek sonuçlarla kaydet; başarısız çağrıları başarı sayma.
+- [x] Tam oturum/prompt/yanıt/araç kayıtlarını private tut; public docs'a yalnız genel sonuçları ekle.
