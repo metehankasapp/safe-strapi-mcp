@@ -19,6 +19,10 @@ test('env-file onboarding discovers schema and clones through the real stdio pro
     await writeFile(join(root, 'src/api/page/content-types/page/schema.json'), JSON.stringify({ kind: 'collectionType', options: { draftAndPublish: true }, info: { pluralName: 'pages' }, attributes: { title: { type: 'string' }, slug: { type: 'uid' }, blocks: { type: 'dynamiczone', components: ['shared.hero'] } } }));
     const config = await localProject({ STRAPI_PROJECT_ROOT: root, STRAPI_URL: mock.baseUrl });
     assert.equal(config.projects['page:blocks'].collection, 'pages');
+    assert.equal(config.projects['page:blocks'].allowInPlaceEditing, false);
+    const optedIn = await localProject({ STRAPI_PROJECT_ROOT: root, STRAPI_URL: mock.baseUrl, STRAPI_ALLOW_IN_PLACE_EDITING: 'true' });
+    assert.equal(optedIn.projects['page:blocks'].allowInPlaceEditing, true);
+    await assert.rejects(localProject({ STRAPI_URL: mock.baseUrl, STRAPI_ALLOW_IN_PLACE_EDITING: 'yes' }), { code: 'CONFIG_ERROR' });
     assert.ok(!decodeURIComponent(config.projects['page:blocks'].populate!).includes('[populate][0]'));
     assert.equal(new URLSearchParams(config.projects['page:blocks'].populate).get('populate[blocks][on][shared.hero][populate][image]'), 'true');
     await writeFile(join(root, '.env'), `STRAPI_URL=${mock.baseUrl}\nSTRAPI_API_TOKEN=test-local-token\nDATABASE_URL=postgresql://unused:unused@127.0.0.1:1/cms\n`);

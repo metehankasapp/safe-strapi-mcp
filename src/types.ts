@@ -14,6 +14,7 @@ export interface ProjectConfig {
   contentType?: string;
   componentSchemas?: Record<string, JsonObject>;
   contentTypeSchema?: JsonObject;
+  allowInPlaceEditing?: boolean;
 }
 
 export interface AppConfig {

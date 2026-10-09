@@ -6,6 +6,20 @@ import { contentHash, idempotentSlug, StrapiClient } from './strapi-client.js';
 import { SchemaCatalog } from './schema-catalog.js';
 import { AppError } from './errors.js';
 import { canAccessProject, currentTenant, requireProject } from './auth.js';
+import { planInPlace, type InPlaceOperation } from './in-place.js';
+
+export interface ModifyPagePreviewRequest {
+  project: string;
+  documentId: string;
+  locale?: string;
+  operations: InPlaceOperation[];
+}
+
+export interface ModifyPageRequest extends ModifyPagePreviewRequest {
+  expectedPageHash: string;
+  expectedOperationHash: string;
+  idempotencyKey: string;
+}
 
 export interface CloneRequest {
   project: string;
@@ -83,7 +97,9 @@ export class ContentService {
     this.locks.set(key, tail);
     await previous;
     try {
-      return await (this.audit.withLock ? this.audit.withLock(`${currentTenant()}:${key}`, callback) : callback());
+      // Writes sharing a database also share the physical Strapi resources.
+      // Tenant isolation applies to audit records, not the serialization lock.
+      return await (this.audit.withLock ? this.audit.withLock(key, callback) : callback());
     } finally {
       release();
       if (this.locks.get(key) === tail) this.locks.delete(key);
@@ -94,6 +110,7 @@ export class ContentService {
     return Object.entries(this.config.projects).filter(([name]) => canAccessProject(name)).map(([name, project]) => ({
       name, baseUrl: project.baseUrl, collection: project.collection,
       blocksField: project.blocksField, defaultLocale: project.defaultLocale,
+      allowInPlaceEditing: project.allowInPlaceEditing === true,
     }));
   }
 
@@ -113,6 +130,135 @@ export class ContentService {
 
   async listPages(projectName: string, search?: string, locale?: string, pageSize?: number): Promise<JsonObject[]> {
     return this.client(projectName).client.list(search, locale, pageSize);
+  }
+
+  private inPlaceContext(request: ModifyPagePreviewRequest) {
+    const context = this.client(request.project);
+    if (!context.project.allowInPlaceEditing) throw new AppError('IN_PLACE_DISABLED', 'Enable allowInPlaceEditing explicitly for this project', undefined, 403);
+    if (!request.documentId) throw new AppError('INVALID_REQUEST', 'documentId is required');
+    return { ...context, locale: this.locale(context.project, request.locale) };
+  }
+
+  private inPlaceOperationHash(request: ModifyPagePreviewRequest, pageHash: string): string {
+    const { project, locale } = this.inPlaceContext(request);
+    return contentHash({ action: 'modify-page', project: request.project, documentId: request.documentId,
+      locale, operations: request.operations, pageHash, baseUrl: project.baseUrl,
+      collection: project.collection, blocksField: project.blocksField });
+  }
+
+  private async inPlaceContentHash(catalog: SchemaCatalog, page: JsonObject): Promise<string> {
+    return contentHash({ data: await catalog.normalizeDocumentForWrite(page),
+      documentId: page.documentId, locale: page.locale, publishedAt: page.publishedAt });
+  }
+
+  private async inPlacePlan(request: ModifyPagePreviewRequest, page: JsonObject) {
+    const { project, locale } = this.inPlaceContext(request);
+    const catalog = new SchemaCatalog(project);
+    const schema = await catalog.inPlaceSchema();
+    const localized = ((schema.pluginOptions as JsonObject | undefined)?.i18n as JsonObject | undefined)?.localized === true;
+    if (page.documentId !== request.documentId || (localized ? page.locale !== locale : page.locale !== undefined && page.locale !== locale) || page.publishedAt !== null) {
+      throw new AppError('INVALID_DRAFT', 'An existing draft in the requested locale is required');
+    }
+    for (const [field, definition] of Object.entries(schema.attributes as JsonObject)) {
+      if ((definition as JsonObject).private === true || page[field] === undefined) {
+        throw new AppError('INCOMPLETE_CONTENT', `Cannot preserve unreadable page field: ${field}`);
+      }
+    }
+    const original = page[project.blocksField];
+    if (!Array.isArray(original)) throw new AppError('INCOMPLETE_CONTENT', 'Dynamic zone was not populated');
+    await catalog.normalizeDynamicZoneForUpdate(original, true);
+    for (const operation of request.operations) {
+      if (operation.type === 'insert') await catalog.normalizeDynamicZoneForUpdate([operation.component], false, true);
+    }
+    const plan = planInPlace(original, request.operations);
+    await catalog.assertReferencesPreserved(original, plan.blocks);
+    const updateBlocks = await catalog.normalizeDynamicZoneForUpdate(plan.blocks);
+    const intended = { ...page, [project.blocksField]: plan.blocks };
+    return { ...plan, updateBlocks, catalog, intendedHash: await this.inPlaceContentHash(catalog, intended) };
+  }
+
+  async previewModifyPage(request: ModifyPagePreviewRequest): Promise<JsonObject> {
+    const { client, project, locale } = this.inPlaceContext(request);
+    const page = await client.get(request.documentId, locale);
+    const plan = await this.inPlacePlan(request, page);
+    const pageHash = contentHash(page);
+    const operationHash = this.inPlaceOperationHash(request, pageHash);
+    const result = { documentId: request.documentId, locale, pageHash, operationHash,
+      beforeCount: (page[project.blocksField] as unknown[]).length, afterCount: plan.blocks.length,
+      changes: plan.changes, differences: deepDifferences(page[project.blocksField], plan.blocks),
+      status: 'draft', concurrency: 'REST revision checks; external writes are not atomic' };
+    const previewKey = this.auditKey(`preview-modify-page:${operationHash}`);
+    // Persist the server-generated plan. A write cannot bypass preview by merely
+    // supplying two syntactically valid hashes.
+    await this.audit.begin({ key: previewKey, project: this.auditProject(request.project),
+      sourceDocumentId: request.documentId, cloneSlug: String(page[project.slugField]),
+      requestHash: operationHash, intendedHash: plan.intendedHash, request: { action: 'preview-modify-page', page, blocks: plan.blocks } });
+    await this.audit.complete(previewKey, result);
+    return result;
+  }
+
+  async modifyPage(request: ModifyPageRequest): Promise<JsonObject> {
+    return this.withLock('writes', () => this.modifyPageLocked(request));
+  }
+
+  private async modifyPageLocked(request: ModifyPageRequest): Promise<JsonObject> {
+    const { client, project, locale } = this.inPlaceContext(request);
+    if (!request.idempotencyKey || request.idempotencyKey.length < 8 || request.idempotencyKey.length > 200 ||
+      !/^[a-f0-9]{64}$/.test(request.expectedPageHash) || !/^[a-f0-9]{64}$/.test(request.expectedOperationHash)) {
+      throw new AppError('INVALID_REQUEST', 'Valid preview hashes and an 8–200 character idempotencyKey are required');
+    }
+    const operationHash = this.inPlaceOperationHash(request, request.expectedPageHash);
+    if (operationHash !== request.expectedOperationHash) throw new AppError('PREVIEW_MISMATCH', 'Operations differ from preview', undefined, 409);
+    const preview = await this.audit.get(this.auditKey(`preview-modify-page:${operationHash}`));
+    if (preview?.status !== 'completed' || !preview.intendedHash || !preview.result) {
+      throw new AppError('PREVIEW_REQUIRED', 'Run preview_modify_page in this installation before writing', undefined, 409);
+    }
+    const key = this.auditKey(request.idempotencyKey);
+    const jobHash = requestHash('modify-page', { ...request, locale });
+    const existing = await this.audit.get(key);
+    if (existing && existing.requestHash !== jobHash) throw new AppError('IDEMPOTENCY_CONFLICT', 'Idempotency key was used with different inputs', undefined, 409);
+    if (existing?.status === 'completed' && existing.result) return { ...existing.result, idempotentReplay: true };
+    const page = await client.get(request.documentId, locale);
+    const catalog = new SchemaCatalog(project);
+    const expectedBlocks = preview.request.blocks as unknown[];
+    const verify = async (fetched: JsonObject) => {
+      // Require complete populated data again; normalization must not conceal a
+      // missing field or regenerated ID during post-write verification.
+      await catalog.normalizeDynamicZoneForUpdate(fetched[project.blocksField] as unknown[], true);
+      if (await this.inPlaceContentHash(catalog, fetched) !== preview.intendedHash) {
+        throw new AppError('VERIFICATION_FAILED', 'Page differs from preview after re-fetch', undefined, 409);
+      }
+      await catalog.assertComponentIds(expectedBlocks, fetched[project.blocksField] as unknown[]);
+    };
+    const result = (fetched: JsonObject, recovered = false): JsonObject => ({ documentId: request.documentId, locale,
+      pageHash: contentHash(fetched), operationHash, changes: preview.result?.changes,
+      verified: true, recovered, status: 'draft', concurrency: preview.result?.concurrency });
+    if (existing) {
+      try {
+        await verify(page);
+        const recovered = result(page, true);
+        await this.audit.complete(key, recovered);
+        return recovered;
+      } catch {
+        throw new AppError('WRITE_OUTCOME_UNKNOWN', 'Previous update could not be verified; inspect the page before starting a new operation', undefined, 409);
+      }
+    }
+    if (contentHash(page) !== request.expectedPageHash) throw new AppError('PAGE_CHANGED', 'Page changed after preview; preview again', undefined, 409);
+    const plan = await this.inPlacePlan(request, page);
+    if (plan.intendedHash !== preview.intendedHash) throw new AppError('PREVIEW_MISMATCH', 'Schema or write plan changed after preview', undefined, 409);
+    const latest = await client.get(request.documentId, locale);
+    if (contentHash(latest) !== request.expectedPageHash) throw new AppError('PAGE_CHANGED', 'Page changed while preparing the update', undefined, 409);
+    await this.audit.begin({ key, project: this.auditProject(request.project), sourceDocumentId: request.documentId,
+      cloneSlug: String(page[project.slugField]), requestHash: jobHash, intendedHash: plan.intendedHash,
+      request: { action: 'modify-page', ...request } });
+    try {
+      await client.update(request.documentId, { [project.blocksField]: plan.updateBlocks }, locale);
+      const fetched = await client.get(request.documentId, locale);
+      await verify(fetched);
+      const completed = result(fetched);
+      await this.audit.complete(key, completed);
+      return completed;
+    } catch (error) { await this.audit.fail(key, error); throw error; }
   }
 
   async listComponents(projectName: string): Promise<JsonObject[]> {

@@ -4,6 +4,9 @@ import type { AppConfig, JsonObject } from './types.js';
 import { AppError } from './errors.js';
 
 export async function localProject(env: NodeJS.ProcessEnv = process.env): Promise<AppConfig> {
+  if (env.STRAPI_ALLOW_IN_PLACE_EDITING && !['true', 'false'].includes(env.STRAPI_ALLOW_IN_PLACE_EDITING)) {
+    throw new AppError('CONFIG_ERROR', 'STRAPI_ALLOW_IN_PLACE_EDITING must be true or false');
+  }
   const root = resolve(env.STRAPI_PROJECT_ROOT ?? '.');
   if (!env.STRAPI_URL) throw new AppError('CONFIG_ERROR', 'Set STRAPI_URL and STRAPI_API_TOKEN in your environment or use --env-file. Set STRAPI_PROJECT_ROOT to your Strapi source directory.');
   const components: Record<string, JsonObject> = {};
@@ -55,6 +58,7 @@ export async function localProject(env: NodeJS.ProcessEnv = process.env): Promis
           routeField,
           titleField: title, defaultLocale: env.STRAPI_LOCALE ?? 'en',
           contentType: type.name, contentTypeSchema: schema, componentSchemas: components,
+          allowInPlaceEditing: env.STRAPI_ALLOW_IN_PLACE_EDITING === 'true',
           populate: params.toString(),
         };
       }
