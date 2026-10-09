@@ -172,3 +172,47 @@ current source build is required; do not bypass the checks with another MCP.
 - Check the target frontend’s content-state configuration. A frontend that reads
   only published content will not show draft edits. Static sites may need a
   separate rebuild and deployment after publication.
+
+## Consistent preview response (current source)
+
+For `contractVersion: "1"`, always use these labels in this order, translated
+consistently into the user's language:
+
+1. **Target** — `target.project`, `documentId`, `locale`, draft state.
+2. **Action** — `action` and `summary` counts.
+3. **Changes** — `fieldChanges`: path, before → after and existence flags.
+4. **Protection** — `safety`; REST checks are not atomic.
+5. **Publication** — nothing is published automatically.
+6. **Rollback** — `safety.rollbackSupported` is eligibility, not revision validity.
+7. **Approval** — ask before calling `nextAction.tool`; show `revision` hashes.
+
+If `fieldChangesTruncated` is true, disclose that the diff is incomplete and
+inspect relevant content before seeking approval. Keep machine field names
+unchanged; human labels can be localized. User approval is a client workflow
+rule, not independently enforced human authentication by the MCP.
+
+## 11. Undo a recorded field edit (opt-in source build)
+
+```text
+Use Safe Strapi for <project-name>. List local operations for <document-id>
+and locale <locale> with list_page_operations.
+
+Preview rollback of operation <operation-id> using preview_rollback_page.
+Use the standard preview response labels and show the exact recorded values
+to restore. Do not write until I explicitly approve this rollback.
+
+After approval, call rollback_page with the same target and operationId,
+expectedPageHash from pageHash, expectedOperationHash from operationHash,
+and a NEW stable idempotency key. Re-inspect the draft and report verification.
+Never publish, delete components, or automatically roll back after an error.
+```
+
+Rollback only supports completed verified patch-only edits while the page still
+matches its exact post-operation revision. Later edits, uncertain writes,
+missing snapshots and insert operations must stop the workflow. Existing
+component identities and media/relation references are preserved. Recorded
+scalar values may return to a previously empty/null value; ordinary patches
+still cannot clear content. A lost rollback response can only be reconciled by
+re-reading with the same inputs/key, never blindly sending a second update.
+Keep the local audit database private: it contains content snapshots. These
+new tools are in the current source build, not the published 0.2.0 package.

@@ -162,6 +162,40 @@ GET/PUT. The result includes this limitation in `concurrency`. A fully atomic
 guarantee requires a separate Strapi-side conditional-update endpoint, which this
 version does not implement.
 
+### Consistent previews and explicit rollback (current source)
+
+All preview tools return `contractVersion: "1"` and the same machine-readable
+fields: `target`, `summary`, `changes`, `fieldChanges`, `safety`, `revision` and
+`nextAction`. `fieldChanges` includes `path`, `before`, `after`, `beforeExists`
+and `afterExists`; missing values are represented as null with the existence
+flag set to false. Results retain the previous top-level hashes for compatibility.
+The diff is limited to 500 entries; `fieldChangesTruncated` signals that the
+report may be incomplete. AI clients should consistently present the target,
+old/new values, preservation rules, publication state and rollback eligibility,
+then request approval. Approval is a client workflow rule, not a server-side
+human authorization mechanism.
+
+Direct-edit results include an `operationId` (the caller's idempotency key).
+`list_page_operations` lists local operations for a project, document and locale
+without exposing snapshots. For an approved rollback:
+
+1. Call `preview_rollback_page` with that target and `operationId`.
+2. Review the old/new field values and obtain explicit approval.
+3. Call `rollback_page` with the same target and operation ID, both returned
+   hashes as `expectedPageHash` / `expectedOperationHash`, and a **new** stable
+   idempotency key.
+4. Re-inspect the draft and report the verified result; never publish.
+
+Rollback only restores a completed, verified patch-only operation while the
+page still has its exact post-operation revision. Later changes, uncertain
+operations, missing snapshots, changed target configuration and insert operations
+are rejected. It preserves component count, order, IDs and media/relation
+references. Recorded scalar values may return to their previous empty/null value;
+ordinary patches still forbid clearing content. `rollbackSupported` is eligibility,
+not a guarantee that the current page revision permits rollback. There is no
+automatic rollback and no component deletion. The REST concurrency limitation
+also applies to rollback. These tools require the current source build.
+
 ### Use alongside the official Strapi MCP
 
 Safe Strapi MCP uses a Content API Token and REST. The official MCP uses an Admin
@@ -181,6 +215,9 @@ Concurrent MCP writes sharing the same audit database are serialized. Draft and 
 ## Local state
 
 The audit database defaults to `.safe-strapi/audit.sqlite` inside the selected project; set `AUDIT_DB` to override it. Preserve this database between sessions. Add `.safe-strapi/` and env files to your project's gitignore. Protect them with local filesystem permissions.
+
+Preview and write records contain content snapshots for verification and rollback.
+Treat the database as private content; losing it also loses recorded rollback history.
 
 Each installation uses its own local credentials and state. The package supports stdio only and does not require or accept an MCP access key.
 

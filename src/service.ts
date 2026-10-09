@@ -1,12 +1,13 @@
 import type { AppConfig, ChangeSummary, JsonObject, Operation } from './types.js';
 import { resolveProject } from './config.js';
-import type { AuditRepository, OwnedDraft } from './audit.js';
+import type { AuditRecord, AuditRepository, OwnedDraft } from './audit.js';
 import { applyOperations } from './operations.js';
 import { contentHash, idempotentSlug, StrapiClient } from './strapi-client.js';
 import { SchemaCatalog } from './schema-catalog.js';
 import { AppError } from './errors.js';
 import { canAccessProject, currentTenant, requireProject } from './auth.js';
 import { planInPlace, type InPlaceOperation } from './in-place.js';
+import { previewContract, REST_CONCURRENCY } from './preview.js';
 
 export interface ModifyPagePreviewRequest {
   project: string;
@@ -19,6 +20,28 @@ export interface ModifyPageRequest extends ModifyPagePreviewRequest {
   expectedPageHash: string;
   expectedOperationHash: string;
   idempotencyKey: string;
+}
+
+export interface RollbackPagePreviewRequest {
+  project: string;
+  documentId: string;
+  locale?: string;
+  operationId: string;
+}
+
+export interface RollbackPageRequest extends RollbackPagePreviewRequest {
+  expectedPageHash: string;
+  expectedOperationHash: string;
+  idempotencyKey: string;
+}
+
+type DraftTarget = Pick<ModifyPagePreviewRequest, 'project' | 'documentId' | 'locale'>;
+interface DraftPlan {
+  blocks: unknown[];
+  changes: ChangeSummary[];
+  updateBlocks: unknown[];
+  catalog: SchemaCatalog;
+  intendedHash: string;
 }
 
 export interface CloneRequest {
@@ -73,6 +96,25 @@ function deepDifferences(left: unknown, right: unknown, path = '', output: JsonO
   }
   output.push({ path: path || '$', left, right });
   return output;
+}
+
+function componentDifferences(before: unknown[], after: unknown[]): JsonObject[] {
+  const identity = (value: unknown): string | null => {
+    const block = value as JsonObject | null;
+    return block && typeof block.__component === 'string' && Number.isSafeInteger(block.id)
+      ? `${block.__component}:${block.id}` : null;
+  };
+  const keys = before.map(identity);
+  // Clone workflows may use schemas/data without IDs; retain positional diffs there.
+  if (keys.includes(null) || new Set(keys).size !== keys.length) return deepDifferences(before, after);
+  const originals = new Map(keys.map((key, index) => [key, before[index]]));
+  const retained = new Set(after.map(identity));
+  const differences: JsonObject[] = [];
+  after.forEach((block, index) => deepDifferences(originals.get(identity(block)), block, `[${index}]`, differences));
+  before.forEach((block, index) => {
+    if (!retained.has(identity(block))) deepDifferences(block, undefined, `[${index}]`, differences);
+  });
+  return differences;
 }
 
 export class ContentService {
@@ -132,7 +174,7 @@ export class ContentService {
     return this.client(projectName).client.list(search, locale, pageSize);
   }
 
-  private inPlaceContext(request: ModifyPagePreviewRequest) {
+  private inPlaceContext(request: DraftTarget) {
     const context = this.client(request.project);
     if (!context.project.allowInPlaceEditing) throw new AppError('IN_PLACE_DISABLED', 'Enable allowInPlaceEditing explicitly for this project', undefined, 403);
     if (!request.documentId) throw new AppError('INVALID_REQUEST', 'documentId is required');
@@ -151,7 +193,7 @@ export class ContentService {
       documentId: page.documentId, locale: page.locale, publishedAt: page.publishedAt });
   }
 
-  private async inPlacePlan(request: ModifyPagePreviewRequest, page: JsonObject) {
+  private async inPlaceDraft(request: DraftTarget, page: JsonObject) {
     const { project, locale } = this.inPlaceContext(request);
     const catalog = new SchemaCatalog(project);
     const schema = await catalog.inPlaceSchema();
@@ -167,6 +209,11 @@ export class ContentService {
     const original = page[project.blocksField];
     if (!Array.isArray(original)) throw new AppError('INCOMPLETE_CONTENT', 'Dynamic zone was not populated');
     await catalog.normalizeDynamicZoneForUpdate(original, true);
+    return { project, catalog, original };
+  }
+
+  private async inPlacePlan(request: ModifyPagePreviewRequest, page: JsonObject): Promise<DraftPlan> {
+    const { project, catalog, original } = await this.inPlaceDraft(request, page);
     for (const operation of request.operations) {
       if (operation.type === 'insert') await catalog.normalizeDynamicZoneForUpdate([operation.component], false, true);
     }
@@ -177,16 +224,34 @@ export class ContentService {
     return { ...plan, updateBlocks, catalog, intendedHash: await this.inPlaceContentHash(catalog, intended) };
   }
 
+  private async supportsRollback(request: ModifyPagePreviewRequest, page: JsonObject, plan: DraftPlan): Promise<boolean> {
+    if (!request.operations.every(operation => operation.type === 'patch')) return false;
+    const { project } = this.inPlaceContext(request);
+    try {
+      await plan.catalog.assertReferencesPreserved(plan.updateBlocks,
+        await plan.catalog.normalizeDynamicZoneForUpdate(page[project.blocksField] as unknown[]));
+      return true;
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'CONTENT_REMOVAL_BLOCKED') return false;
+      throw error;
+    }
+  }
+
   async previewModifyPage(request: ModifyPagePreviewRequest): Promise<JsonObject> {
     const { client, project, locale } = this.inPlaceContext(request);
     const page = await client.get(request.documentId, locale);
     const plan = await this.inPlacePlan(request, page);
     const pageHash = contentHash(page);
     const operationHash = this.inPlaceOperationHash(request, pageHash);
+    const differences = componentDifferences(page[project.blocksField] as unknown[], plan.blocks);
     const result = { documentId: request.documentId, locale, pageHash, operationHash,
       beforeCount: (page[project.blocksField] as unknown[]).length, afterCount: plan.blocks.length,
-      changes: plan.changes, differences: deepDifferences(page[project.blocksField], plan.blocks),
-      status: 'draft', concurrency: 'REST revision checks; external writes are not atomic' };
+      changes: plan.changes, differences,
+      status: 'draft', concurrency: REST_CONCURRENCY,
+      ...previewContract({ action: 'modify_page', project: request.project, documentId: request.documentId,
+        locale, blocksField: project.blocksField, beforeCount: (page[project.blocksField] as unknown[]).length,
+        afterCount: plan.blocks.length, changes: plan.changes, differences,
+        pageHash, operationHash, rollbackSupported: await this.supportsRollback(request, page, plan) }) };
     const previewKey = this.auditKey(`preview-modify-page:${operationHash}`);
     // Persist the server-generated plan. A write cannot bypass preview by merely
     // supplying two syntactically valid hashes.
@@ -202,19 +267,34 @@ export class ContentService {
   }
 
   private async modifyPageLocked(request: ModifyPageRequest): Promise<JsonObject> {
-    const { client, project, locale } = this.inPlaceContext(request);
+    this.validateDraftWrite(request);
+    const operationHash = this.inPlaceOperationHash(request, request.expectedPageHash);
+    if (operationHash !== request.expectedOperationHash) throw new AppError('PREVIEW_MISMATCH', 'Operations differ from preview', undefined, 409);
+    const preview = await this.requireDraftPreview('modify-page', operationHash);
+    return this.writeDraft(request, 'modify-page', operationHash, preview, page => this.inPlacePlan(request, page));
+  }
+
+  private validateDraftWrite(request: ModifyPageRequest | RollbackPageRequest): void {
     if (!request.idempotencyKey || request.idempotencyKey.length < 8 || request.idempotencyKey.length > 200 ||
       !/^[a-f0-9]{64}$/.test(request.expectedPageHash) || !/^[a-f0-9]{64}$/.test(request.expectedOperationHash)) {
       throw new AppError('INVALID_REQUEST', 'Valid preview hashes and an 8–200 character idempotencyKey are required');
     }
-    const operationHash = this.inPlaceOperationHash(request, request.expectedPageHash);
-    if (operationHash !== request.expectedOperationHash) throw new AppError('PREVIEW_MISMATCH', 'Operations differ from preview', undefined, 409);
-    const preview = await this.audit.get(this.auditKey(`preview-modify-page:${operationHash}`));
+  }
+
+  private async requireDraftPreview(action: 'modify-page' | 'rollback-page', operationHash: string): Promise<AuditRecord & { intendedHash: string; result: JsonObject }> {
+    const preview = await this.audit.get(this.auditKey(`preview-${action}:${operationHash}`));
     if (preview?.status !== 'completed' || !preview.intendedHash || !preview.result) {
-      throw new AppError('PREVIEW_REQUIRED', 'Run preview_modify_page in this installation before writing', undefined, 409);
+      throw new AppError('PREVIEW_REQUIRED', `Run preview_${action.replaceAll('-', '_')} in this installation before writing`, undefined, 409);
     }
+    return preview as AuditRecord & { intendedHash: string; result: JsonObject };
+  }
+
+  private async writeDraft(request: ModifyPageRequest | RollbackPageRequest, action: 'modify-page' | 'rollback-page',
+    operationHash: string, preview: AuditRecord & { intendedHash: string; result: JsonObject },
+    createPlan: (page: JsonObject) => Promise<DraftPlan>): Promise<JsonObject> {
+    const { client, project, locale } = this.inPlaceContext(request);
     const key = this.auditKey(request.idempotencyKey);
-    const jobHash = requestHash('modify-page', { ...request, locale });
+    const jobHash = requestHash(action, { ...request, locale });
     const existing = await this.audit.get(key);
     if (existing && existing.requestHash !== jobHash) throw new AppError('IDEMPOTENCY_CONFLICT', 'Idempotency key was used with different inputs', undefined, 409);
     if (existing?.status === 'completed' && existing.result) return { ...existing.result, idempotentReplay: true };
@@ -232,7 +312,10 @@ export class ContentService {
     };
     const result = (fetched: JsonObject, recovered = false): JsonObject => ({ documentId: request.documentId, locale,
       pageHash: contentHash(fetched), operationHash, changes: preview.result?.changes,
-      verified: true, recovered, status: 'draft', concurrency: preview.result?.concurrency });
+      operationId: request.idempotencyKey, action: action.replaceAll('-', '_'),
+      rollbackOf: 'operationId' in request ? request.operationId : null,
+      rollbackSupported: action === 'modify-page' && (preview.result.safety as JsonObject | undefined)?.rollbackSupported === true,
+      verified: true, recovered, status: 'draft', concurrency: preview.result.concurrency });
     if (existing) {
       try {
         await verify(page);
@@ -244,13 +327,13 @@ export class ContentService {
       }
     }
     if (contentHash(page) !== request.expectedPageHash) throw new AppError('PAGE_CHANGED', 'Page changed after preview; preview again', undefined, 409);
-    const plan = await this.inPlacePlan(request, page);
+    const plan = await createPlan(page);
     if (plan.intendedHash !== preview.intendedHash) throw new AppError('PREVIEW_MISMATCH', 'Schema or write plan changed after preview', undefined, 409);
     const latest = await client.get(request.documentId, locale);
     if (contentHash(latest) !== request.expectedPageHash) throw new AppError('PAGE_CHANGED', 'Page changed while preparing the update', undefined, 409);
     await this.audit.begin({ key, project: this.auditProject(request.project), sourceDocumentId: request.documentId,
       cloneSlug: String(page[project.slugField]), requestHash: jobHash, intendedHash: plan.intendedHash,
-      request: { action: 'modify-page', ...request } });
+      request: { ...request, locale, action, beforePage: page } });
     try {
       await client.update(request.documentId, { [project.blocksField]: plan.updateBlocks }, locale);
       const fetched = await client.get(request.documentId, locale);
@@ -259,6 +342,108 @@ export class ContentService {
       await this.audit.complete(key, completed);
       return completed;
     } catch (error) { await this.audit.fail(key, error); throw error; }
+  }
+
+  private rollbackOperationHash(request: RollbackPagePreviewRequest, pageHash: string): string {
+    const { project, locale } = this.inPlaceContext(request);
+    return contentHash({ action: 'rollback-page', project: request.project, documentId: request.documentId,
+      locale, operationId: request.operationId, pageHash, baseUrl: project.baseUrl,
+      collection: project.collection, blocksField: project.blocksField });
+  }
+
+  private async rollbackSource(request: RollbackPagePreviewRequest): Promise<AuditRecord> {
+    const { locale, project } = this.inPlaceContext(request);
+    const job = await this.audit.get(this.auditKey(request.operationId));
+    if (!job || job.project !== this.auditProject(request.project) || job.sourceDocumentId !== request.documentId ||
+      this.locale(project, job.request.locale as string | undefined) !== locale) {
+      throw new AppError('OPERATION_NOT_FOUND', 'Operation not found for this project, document and locale', undefined, 404);
+    }
+    if (job.status !== 'completed' || job.result?.verified !== true || job.request.action !== 'modify-page' ||
+      job.result.rollbackSupported === false ||
+      !job.intendedHash || !Array.isArray(job.request.operations) || !job.request.operations.length ||
+      !job.request.operations.every(operation => (operation as JsonObject).type === 'patch')) {
+      throw new AppError('ROLLBACK_UNSUPPORTED', 'Only completed, verified patch-only operations can be rolled back; inserted components are never removed');
+    }
+    if (this.inPlaceOperationHash(job.request as unknown as ModifyPageRequest, String(job.request.expectedPageHash)) !== job.request.expectedOperationHash) {
+      throw new AppError('PREVIEW_MISMATCH', 'Operation target configuration changed', undefined, 409);
+    }
+    return job;
+  }
+
+  private async rollbackPlan(request: RollbackPagePreviewRequest, page: JsonObject): Promise<DraftPlan> {
+    const job = await this.rollbackSource(request);
+    const { project, catalog, original } = await this.inPlaceDraft(request, page);
+    if (contentHash(page) !== job.result?.pageHash || await this.inPlaceContentHash(catalog, page) !== job.intendedHash) {
+      throw new AppError('PAGE_CHANGED', 'Page changed after the operation; rollback would overwrite later edits', undefined, 409);
+    }
+    // Older installations already persist their original page in the preview.
+    const savedPreview = job.request.beforePage ? null : await this.audit.get(this.auditKey(`preview-modify-page:${job.request.expectedOperationHash}`));
+    const beforePage = (job.request.beforePage ?? savedPreview?.request.page) as JsonObject | undefined;
+    if (!beforePage || contentHash(beforePage) !== job.request.expectedPageHash) {
+      throw new AppError('ROLLBACK_UNSUPPORTED', 'Verified before-snapshot is unavailable');
+    }
+    const blocks = structuredClone(beforePage[project.blocksField]) as unknown[];
+    if (!Array.isArray(blocks)) throw new AppError('ROLLBACK_UNSUPPORTED', 'Before-snapshot has no dynamic zone');
+    await catalog.normalizeDynamicZoneForUpdate(blocks, true);
+    // Rollback restores field values, never component membership, identity or references.
+    await catalog.assertComponentIds(original, blocks);
+    const updateBlocks = await catalog.normalizeDynamicZoneForUpdate(blocks);
+    const currentBlocks = await catalog.normalizeDynamicZoneForUpdate(original);
+    await catalog.assertReferencesPreserved(currentBlocks, updateBlocks);
+    const differences = deepDifferences(currentBlocks, updateBlocks);
+    const changes: ChangeSummary[] = (blocks as JsonObject[]).flatMap((block, index) =>
+      contentHash(currentBlocks[index]) === contentHash(updateBlocks[index]) ? [] : [{ type: 'patch' as const,
+        component: String(block.__component), from: index, to: index,
+        changedPaths: differences.filter(change => String(change.path).startsWith(`[${index}].`)).map(change => String(change.path)) }]);
+    return { blocks, changes, updateBlocks, catalog,
+      intendedHash: await this.inPlaceContentHash(catalog, { ...page, [project.blocksField]: blocks }) };
+  }
+
+  async previewRollbackPage(request: RollbackPagePreviewRequest): Promise<JsonObject> {
+    const { client, project, locale } = this.inPlaceContext(request);
+    // Resolve scoped operation before contacting Strapi.
+    await this.rollbackSource(request);
+    const page = await client.get(request.documentId, locale);
+    const plan = await this.rollbackPlan(request, page);
+    const pageHash = contentHash(page);
+    const operationHash = this.rollbackOperationHash(request, pageHash);
+    const result = { documentId: request.documentId, locale, pageHash, operationHash,
+      operationId: request.operationId, status: 'draft', concurrency: REST_CONCURRENCY,
+      ...previewContract({ action: 'rollback_page', project: request.project, documentId: request.documentId,
+        locale, blocksField: project.blocksField, beforeCount: (page[project.blocksField] as unknown[]).length,
+        afterCount: plan.blocks.length, changes: plan.changes,
+        differences: deepDifferences(await plan.catalog.normalizeDynamicZoneForUpdate(page[project.blocksField] as unknown[]), plan.updateBlocks),
+        pageHash, operationHash, rollbackSupported: false, operationId: request.operationId }) };
+    const key = this.auditKey(`preview-rollback-page:${operationHash}`);
+    await this.audit.begin({ key, project: this.auditProject(request.project), sourceDocumentId: request.documentId,
+      cloneSlug: String(page[project.slugField]), requestHash: operationHash, intendedHash: plan.intendedHash,
+      request: { action: 'preview-rollback-page', page, blocks: plan.blocks } });
+    await this.audit.complete(key, result);
+    return result;
+  }
+
+  async rollbackPage(request: RollbackPageRequest): Promise<JsonObject> {
+    return this.withLock('writes', async () => {
+      this.validateDraftWrite(request);
+      const operationHash = this.rollbackOperationHash(request, request.expectedPageHash);
+      if (operationHash !== request.expectedOperationHash) throw new AppError('PREVIEW_MISMATCH', 'Rollback differs from preview', undefined, 409);
+      const preview = await this.requireDraftPreview('rollback-page', operationHash);
+      await this.rollbackSource(request);
+      return this.writeDraft(request, 'rollback-page', operationHash, preview, page => this.rollbackPlan(request, page));
+    });
+  }
+
+  async listPageOperations(projectName: string, documentId: string, locale?: string, limit = 20): Promise<JsonObject> {
+    const { locale: resolvedLocale, project } = this.inPlaceContext({ project: projectName, documentId, locale });
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_REQUEST', 'limit must be between 1 and 100');
+    const records = await this.audit.listPage(this.auditProject(projectName), documentId, resolvedLocale, this.locale(project), limit);
+    return { project: projectName, documentId, locale: resolvedLocale, limit,
+      operations: records.map(job => ({
+        operationId: job.idempotencyKey.slice(`${currentTenant()}:`.length), action: job.request.action,
+        status: job.status, verified: job.result?.verified === true,
+        rollbackSupported: job.status === 'completed' && job.result?.rollbackSupported === true,
+        rollbackOf: job.result?.rollbackOf ?? null,
+      })) };
   }
 
   async listComponents(projectName: string): Promise<JsonObject[]> {
@@ -362,6 +547,11 @@ export class ContentService {
       proposedSlug, topLevelChanges,
       beforeCount: (context.source[context.project.blocksField] as unknown[]).length,
       afterCount: blocks.length, changes,
+      ...previewContract({ action: 'clone_page_and_modify', project: request.project, documentId: context.documentId,
+        locale: context.locale, blocksField: context.project.blocksField,
+        beforeCount: (context.source[context.project.blocksField] as unknown[]).length, afterCount: blocks.length,
+        changes, differences: componentDifferences(context.source[context.project.blocksField] as unknown[], blocks),
+        pageHash: context.sourceHash, operationHash, rollbackSupported: false }),
     };
   }
 

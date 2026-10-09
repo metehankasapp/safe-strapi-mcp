@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ContentService } from './service.js';
 import { toStructuredError } from './errors.js';
 import { requireScope } from './auth.js';
+import { previewDataSchema } from './preview.js';
 
 const jsonValue: z.ZodType<unknown> = z.lazy(() => z.union([
   z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValue), z.record(jsonValue),
@@ -54,6 +55,22 @@ const inPlaceInput = {
   ])).min(1).max(100),
 };
 
+const rollbackInput = {
+  project: z.string().min(1),
+  documentId: z.string().min(1),
+  locale: z.string().min(1).optional(),
+  operationId: z.string().min(8).max(200),
+};
+
+const draftWriteInput = {
+  expectedPageHash: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedOperationHash: z.string().regex(/^[a-f0-9]{64}$/),
+  idempotencyKey: z.string().min(8).max(200),
+};
+
+const previewOutput = { ok: z.boolean(), data: previewDataSchema.optional(),
+  error: z.object({ code: z.string(), message: z.string(), details: z.unknown().optional() }).optional() };
+
 function response(value: unknown) {
   const structuredContent = { ok: true, data: value };
   return { structuredContent, content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }] };
@@ -86,18 +103,32 @@ export function createMcpServer(service: ContentService): McpServer {
   }, async () => safe('mcp:read', () => service.listProjects()));
 
   server.registerTool('preview_modify_page', {
-    description: 'Preview patch/insert operations on an existing page draft without cloning or writing to Strapi. Requires project opt-in. Preserves other components and their IDs; array replacement, clearing fields and changing existing media/relations are blocked. Returns persisted preview hashes required by modify_page.',
+    description: 'Preview patch/insert operations on an existing page draft without cloning or writing to Strapi. Returns contractVersion 1 with target, summary, changes, fieldChanges (before/after), safety, revision and nextAction. Present these fields consistently and obtain user approval before writing. Requires project opt-in. Preserves components and IDs; array replacement, clearing fields and changing existing media/relations are blocked.',
     inputSchema: inPlaceInput,
+    outputSchema: previewOutput,
   }, async (args) => safe('mcp:read', () => service.previewModifyPage(args)));
 
   server.registerTool('modify_page', {
     description: 'Apply a persisted preview to an existing page draft without cloning or publishing. Requires project opt-in, both preview hashes and an idempotency key. Only patch/insert are supported. Verifies preserved component IDs and content after re-fetch. REST revision checks cannot prevent an external edit racing the final write.',
-    inputSchema: { ...inPlaceInput,
-      expectedPageHash: z.string().regex(/^[a-f0-9]{64}$/),
-      expectedOperationHash: z.string().regex(/^[a-f0-9]{64}$/),
-      idempotencyKey: z.string().min(8).max(200),
-    },
+    inputSchema: { ...inPlaceInput, ...draftWriteInput },
   }, async (args) => safe('mcp:write', () => service.modifyPage(args)));
+
+  server.registerTool('list_page_operations', {
+    description: 'List local patch/insert and rollback operation IDs for one project, document and locale. No page snapshots or credentials are returned. rollbackSupported indicates operation eligibility, not that the current revision permits rollback.',
+    inputSchema: { project: z.string().min(1), documentId: z.string().min(1),
+      locale: z.string().min(1).optional(), limit: z.number().int().min(1).max(100).default(20) },
+  }, async (args) => safe('mcp:read', () => service.listPageOperations(args.project, args.documentId, args.locale, args.limit)));
+
+  server.registerTool('preview_rollback_page', {
+    description: 'Preview restoring recorded field values for a completed patch-only operation. Returns the same versioned preview contract as preview_modify_page. Requires opt-in and the exact post-operation page revision. Refuses later edits, uncertain writes and operations containing insert; never removes components. Show before/after values and obtain explicit approval before rollback_page.',
+    inputSchema: rollbackInput,
+    outputSchema: previewOutput,
+  }, async (args) => safe('mcp:read', () => service.previewRollbackPage(args)));
+
+  server.registerTool('rollback_page', {
+    description: 'Apply a persisted rollback preview with both preview hashes and a new idempotency key. Restores only verified recorded field values on the same draft, including previously empty values. Preserves component identities, media and relations. Never publishes or deletes components. Refuses changed revisions; uncertain responses are reconciled without another write. REST checks are not atomic.',
+    inputSchema: { ...rollbackInput, ...draftWriteInput },
+  }, async (args) => safe('mcp:write', () => service.rollbackPage(args)));
 
   server.registerTool('find_pages', {
     description: 'Find draft-visible pages by title or slug before inspecting one.',
@@ -139,8 +170,9 @@ export function createMcpServer(service: ContentService): McpServer {
   }, async (args) => safe('mcp:read', () => service.inspectOwnedDraft(args.project, args.documentId, args.locale)));
 
   server.registerTool('preview_clone_and_modify', {
-    description: 'Validate component operations and preview their ordered diff. Never writes to Strapi.',
+    description: 'Validate component operations and preview their ordered diff using contractVersion 1: target, summary, changes, fieldChanges, safety, revision and nextAction. Show the preview consistently and obtain approval before writing. Never writes to Strapi.',
     inputSchema: cloneInput,
+    outputSchema: previewOutput,
   }, async (args) => safe('mcp:read', () => service.preview(args)));
 
   server.registerTool('clone_page_and_modify', {

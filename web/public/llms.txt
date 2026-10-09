@@ -25,3 +25,6 @@ Safe Strapi MCP is an open-source MCP server for Strapi 5 collection types with 
 - REST is not atomic against external writers racing the last GET/PUT. Official MCP updates bypass these preservation checks.
 - Use a Content API Token for this MCP; the official Strapi MCP uses a separate Admin Token.
 - Never claim that Safe Strapi published content; it does not expose a publish tool.
+- Current source previews use contractVersion 1: target, summary, changes, fieldChanges, safety, revision and nextAction. Present stable labels: Target, Action, Changes, Protection, Publication, Rollback, Approval. Disclose fieldChangesTruncated.
+- Explicit rollback uses list_page_operations → preview_rollback_page → approval → rollback_page with both hashes and a new idempotency key. Only completed verified patch-only edits at the exact post-operation revision are eligible; later edits and insert operations are rejected. Never automatically roll back.
+- Keep local audit snapshots private. These new tools require the current source build; they are not in the published 0.2.0 package.

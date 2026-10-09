@@ -50,8 +50,9 @@ function request(changes: JsonObject = { title: 'Updated' }): ModifyPagePreviewR
 }
 
 async function write(f: Awaited<ReturnType<typeof fixture>>, input = request(), key = 'edit-existing') {
+  const writesBefore = f.mock.writePayloads.length;
   const preview = await f.service.previewModifyPage(input);
-  assert.equal(f.mock.writePayloads.length, 0);
+  assert.equal(f.mock.writePayloads.length, writesBefore);
   return { input: { ...input, expectedPageHash: String(preview.pageHash), expectedOperationHash: String(preview.operationHash), idempotencyKey: key }, preview };
 }
 
@@ -87,6 +88,11 @@ test('inserts between existing blocks while preserving their IDs and relative or
   try {
     const prepared = await write(f, { ...request(), operations: [{ type: 'insert', component: { __component: 'shared.block', title: 'New',
       image: 99, related: 'related', settings: { id: 'application-id' }, child: { label: 'New child', image: null }, items: [] }, position: { after: { index: 1 } } }] });
+    const differences = prepared.preview.fieldChanges as JsonObject[];
+    assert.equal(differences.length, 1, 'shifted preserved components are not reported as field edits');
+    assert.equal(differences[0].path, '[2]');
+    assert.equal(differences[0].beforeExists, false);
+    assert.equal((differences[0].after as JsonObject).title, 'New');
     f.mock.setTransformNextWrite(doc => {
       const inserted = (doc.blocks as JsonObject[])[2];
       inserted.id = 999;
@@ -277,4 +283,198 @@ test('tenants with separate service instances share the same physical write lock
     assert.equal((results.find(r => r.status === 'rejected') as PromiseRejectedResult).reason.code, 'PAGE_CHANGED');
     assert.equal(f.mock.writePayloads.length, 1);
   } finally { otherAudit.close(); await f.close(); }
+});
+
+async function rollback(f: Awaited<ReturnType<typeof fixture>>, operationId = 'edit-existing', idempotencyKey = 'undo-existing') {
+  const input = { project: 'test', documentId: 'existing', operationId };
+  const preview = await f.service.previewRollbackPage(input);
+  return { preview, input: { ...input, expectedPageHash: String(preview.pageHash),
+    expectedOperationHash: String(preview.operationHash), idempotencyKey } };
+}
+
+test('versioned preview provides stable machine terms and exact field values', async () => {
+  const f = await fixture();
+  try {
+    const { preview } = await write(f);
+    assert.equal(preview.contractVersion, '1');
+    assert.equal(preview.kind, 'preview');
+    assert.equal(preview.action, 'modify_page');
+    assert.deepEqual(preview.target, { project: 'test', documentId: 'existing', locale: 'en', status: 'draft', blocksField: 'blocks', operationId: null });
+    assert.deepEqual(preview.summary, { beforeCount: 4, afterCount: 4, changeCount: 1 });
+    assert.deepEqual(preview.fieldChanges, [{ path: '[1].title', before: 'Block 1', after: 'Updated', beforeExists: true, afterExists: true }]);
+    assert.deepEqual(preview.revision, { pageHash: preview.pageHash, operationHash: preview.operationHash });
+    assert.deepEqual(preview.nextAction, { tool: 'modify_page', requiresUserApproval: true, requiresIdempotencyKey: true });
+    assert.equal((preview.safety as JsonObject).atomic, false);
+    assert.equal((preview.safety as JsonObject).rollbackSupported, true);
+    assert.equal(f.mock.writePayloads.length, 0);
+  } finally { await f.close(); }
+});
+
+test('rollback restores middle and nested field values, keeps IDs/references and survives process restart', async () => {
+  const original = page();
+  const f = await fixture(original);
+  try {
+    const edit = await write(f, request({ title: 'Updated', child: { label: 'Changed' }, settings: { theme: 'dark' } }));
+    const changed = await f.service.modifyPage(edit.input);
+    assert.equal(changed.operationId, 'edit-existing');
+    assert.equal(changed.rollbackSupported, true);
+    const prepared = await rollback(f);
+    assert.equal(prepared.preview.action, 'rollback_page');
+    assert.equal((prepared.preview.summary as JsonObject).changeCount, 1);
+    assert.equal((prepared.preview.fieldChanges as JsonObject[]).length, 3);
+    assert.equal(f.mock.writePayloads.length, 1, 'rollback preview must not write');
+    const reopened = new AuditStore(f.path);
+    try {
+      const result = await new ContentService(f.config, reopened).rollbackPage(prepared.input);
+      assert.equal(result.verified, true);
+      assert.equal(result.rollbackOf, 'edit-existing');
+      const expected = (original.blocks as JsonObject[]).map(block => ({ ...block, image: 99, related: 'related' }));
+      assert.deepEqual(f.mock.documents.get('existing')!.blocks, expected);
+      assert.equal(f.mock.writePayloads.length, 2);
+      assert.deepEqual(Object.keys(f.mock.writePayloads[1]), ['blocks']);
+      assert.equal((await f.service.rollbackPage(prepared.input)).idempotentReplay, true);
+      assert.equal(f.mock.writePayloads.length, 2);
+      const history = await f.service.listPageOperations('test', 'existing');
+      assert.deepEqual((history.operations as JsonObject[]).map(operation => operation.operationId), ['undo-existing', 'edit-existing']);
+      assert.equal(JSON.stringify(history).includes('beforePage'), false);
+      assert.equal(f.mock.requests.some(r => r.method === 'POST' || r.method === 'DELETE'), false);
+    } finally { reopened.close(); }
+  } finally { await f.close(); }
+});
+
+test('rollback may restore a recorded empty scalar while normal patch still forbids clearing', async () => {
+  const original = page();
+  ((original.blocks as JsonObject[])[1].child as JsonObject).label = null;
+  const f = await fixture(original);
+  try {
+    const edit = await write(f, request({ child: { label: 'Filled' } }));
+    await f.service.modifyPage(edit.input);
+    await assert.rejects(f.service.previewModifyPage(request({ child: { label: null } })), { code: 'CONTENT_REMOVAL_BLOCKED' });
+    const prepared = await rollback(f);
+    assert.equal((prepared.preview.fieldChanges as JsonObject[])[0].after, null);
+    await f.service.rollbackPage(prepared.input);
+    assert.equal(((f.mock.documents.get('existing')!.blocks as JsonObject[])[1].child as JsonObject).label, null);
+  } finally { await f.close(); }
+});
+
+test('rollback refuses later edits before preview, after preview and during preparation', async () => {
+  for (const when of ['before-preview', 'after-preview', 'during-plan']) {
+    const f = await fixture();
+    try {
+      const edit = await write(f);
+      await f.service.modifyPage(edit.input);
+      const humanEdit = () => { (f.mock.documents.get('existing')!.blocks as JsonObject[])[3].title = 'Human follow-up'; };
+      if (when === 'before-preview') {
+        humanEdit();
+        await assert.rejects(rollback(f), { code: 'PAGE_CHANGED' });
+      } else {
+        const prepared = await rollback(f);
+        if (when === 'after-preview') humanEdit(); else f.mock.setAfterNextGet(humanEdit);
+        await assert.rejects(f.service.rollbackPage(prepared.input), { code: 'PAGE_CHANGED' });
+      }
+      assert.equal(f.mock.writePayloads.length, 1);
+      assert.equal((f.mock.documents.get('existing')!.blocks as JsonObject[])[3].title, 'Human follow-up');
+    } finally { await f.close(); }
+  }
+});
+
+test('rollback requires its own persisted preview and binds operation, target and configuration', async () => {
+  const f = await fixture();
+  try {
+    const edit = await write(f);
+    await f.service.modifyPage(edit.input);
+    const prepared = await rollback(f);
+    await assert.rejects(f.service.rollbackPage({ ...prepared.input, operationId: 'another-operation' }), { code: 'PREVIEW_MISMATCH' });
+    await assert.rejects(f.service.rollbackPage({ ...prepared.input, expectedOperationHash: edit.input.expectedOperationHash }), { code: 'PREVIEW_MISMATCH' });
+    await assert.rejects(f.service.previewRollbackPage({ project: 'test', documentId: 'other', operationId: 'edit-existing' }), { code: 'OPERATION_NOT_FOUND' });
+    const previewRecord = f.audit.get(`local:preview-rollback-page:${prepared.preview.operationHash}`);
+    // A different installation with only the source operation cannot write without the rollback preview.
+    assert.ok(previewRecord);
+    const otherAudit = new AuditStore(resolve(tmpdir(), `rollback-unpreviewed-${randomUUID()}.sqlite`));
+    try {
+      await assert.rejects(new ContentService(f.config, otherAudit).rollbackPage(prepared.input), { code: 'PREVIEW_REQUIRED' });
+    } finally { otherAudit.close(); }
+    f.config.projects.test.blocksField = 'differentBlocks';
+    await assert.rejects(f.service.previewRollbackPage({ project: 'test', documentId: 'existing', operationId: 'edit-existing' }), { code: 'PREVIEW_MISMATCH' });
+    assert.equal(f.mock.writePayloads.length, 1);
+  } finally { await f.close(); }
+});
+
+test('insert and uncertain operations cannot be rolled back; no components are removed', async () => {
+  const f = await fixture();
+  try {
+    const insert = await write(f, { ...request(), operations: [{ type: 'insert', component: { __component: 'shared.block', title: 'New',
+      image: null, related: null, settings: {}, child: null, items: [] }, position: { end: true } }] });
+    assert.equal((insert.preview.safety as JsonObject).rollbackSupported, false);
+    f.mock.setTransformNextWrite(doc => { (doc.blocks as JsonObject[])[4].id = 999; return doc; });
+    await f.service.modifyPage(insert.input);
+    await assert.rejects(rollback(f), { code: 'ROLLBACK_UNSUPPORTED' });
+    assert.equal((f.mock.documents.get('existing')!.blocks as JsonObject[]).length, 5);
+    const edit = await write(f, request(), 'uncertain-edit');
+    f.mock.setDropNextWriteResponse(true);
+    await assert.rejects(f.service.modifyPage(edit.input));
+    await assert.rejects(rollback(f, 'uncertain-edit'), { code: 'ROLLBACK_UNSUPPORTED' });
+    assert.equal(f.mock.writePayloads.length, 2);
+  } finally { await f.close(); }
+});
+
+test('rollback reconciles lost responses and blocks blind retry after a human follow-up', async () => {
+  for (const humanFollowUp of [false, true]) {
+    const f = await fixture();
+    try {
+      const edit = await write(f);
+      await f.service.modifyPage(edit.input);
+      const prepared = await rollback(f);
+      f.mock.setDropNextWriteResponse(true);
+      await assert.rejects(f.service.rollbackPage(prepared.input));
+      if (humanFollowUp) {
+        (f.mock.documents.get('existing')!.blocks as JsonObject[])[3].title = 'Human follow-up';
+        await assert.rejects(f.service.rollbackPage(prepared.input), { code: 'WRITE_OUTCOME_UNKNOWN' });
+      } else assert.equal((await f.service.rollbackPage(prepared.input)).recovered, true);
+      assert.equal(f.mock.writePayloads.length, 2);
+    } finally { await f.close(); }
+  }
+});
+
+test('rollback detects ID regeneration and content corruption without another write', async () => {
+  const f = await fixture();
+  try {
+    const edit = await write(f);
+    await f.service.modifyPage(edit.input);
+    const prepared = await rollback(f);
+    f.mock.setTransformNextWrite(doc => { ((doc.blocks as JsonObject[])[1].child as JsonObject).id = 999; return doc; });
+    await assert.rejects(f.service.rollbackPage(prepared.input), { code: 'VERIFICATION_FAILED' });
+    await assert.rejects(f.service.rollbackPage(prepared.input), { code: 'WRITE_OUTCOME_UNKNOWN' });
+    assert.equal(f.mock.writePayloads.length, 2);
+  } finally { await f.close(); }
+});
+
+test('operation history and rollback snapshots remain tenant and locale isolated', async () => {
+  const f = await fixture();
+  const principal = (tenant: string): Principal => ({ subject: tenant, tenant, authentication: 'oidc',
+    scopes: new Set(['mcp:read', 'mcp:write']), projects: new Set(['test']) });
+  try {
+    const edit = await runAsPrincipal(principal('one'), () => write(f));
+    await runAsPrincipal(principal('one'), () => f.service.modifyPage(edit.input));
+    assert.deepEqual((await runAsPrincipal(principal('two'), () => f.service.listPageOperations('test', 'existing'))).operations, []);
+    assert.deepEqual((await runAsPrincipal(principal('one'), () => f.service.listPageOperations('test', 'existing', 'fr'))).operations, []);
+    await assert.rejects(runAsPrincipal(principal('two'), () => rollback(f)), { code: 'OPERATION_NOT_FOUND' });
+    const prepared = await runAsPrincipal(principal('one'), () => rollback(f));
+    await assert.rejects(runAsPrincipal(principal('two'), () => f.service.rollbackPage(prepared.input)), { code: 'PREVIEW_REQUIRED' });
+    assert.equal(f.mock.writePayloads.length, 1);
+  } finally { await f.close(); }
+});
+
+test('adding a media reference is not advertised as reversible because rollback must preserve references', async () => {
+  const original = page();
+  (original.blocks as JsonObject[])[1].image = null;
+  const f = await fixture(original);
+  try {
+    const prepared = await write(f, request({ image: 99 }));
+    assert.equal((prepared.preview.safety as JsonObject).rollbackSupported, false);
+    assert.equal((await f.service.modifyPage(prepared.input)).rollbackSupported, false);
+    await assert.rejects(rollback(f), { code: 'ROLLBACK_UNSUPPORTED' });
+    assert.equal((f.mock.documents.get('existing')!.blocks as JsonObject[])[1].image, 99);
+    assert.equal(f.mock.writePayloads.length, 1);
+  } finally { await f.close(); }
 });

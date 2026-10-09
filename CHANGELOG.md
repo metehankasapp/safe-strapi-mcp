@@ -6,6 +6,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Versioned preview contract with stable fields, machine-readable output schemas and field-level before/after values for clone, direct-edit and rollback previews.
+- `list_page_operations`, `preview_rollback_page` and `rollback_page` for explicitly reverting completed patch-only draft edits using saved snapshots, revision checks and post-write verification. Inserted components are never removed.
 - Opt-in `preview_modify_page` and `modify_page` tools for patching and inserting components in an existing page draft without cloning or publishing.
 - Persisted preview hashes, revision checks, component ID preservation, destructive-operation guards and lost-response reconciliation for in-place updates.
 - `allowInPlaceEditing` config, `STRAPI_ALLOW_IN_PLACE_EDITING` env and `--allow-in-place-editing` auto-discovery flag, all disabled by default.
