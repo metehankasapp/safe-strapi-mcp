@@ -1,8 +1,8 @@
 # Safe Strapi MCP Prompt Cookbook
 
-Use this guide with any MCP-compatible AI client. Replace `<placeholders>` with real values. Safe Strapi works on cloned drafts and does not publish content.
+Use this guide with any MCP-compatible AI client. Replace `<placeholders>` with real values. Clone-first is the default; opt-in direct editing of existing drafts is also in the current source build. These new tools are not in the published 0.2.0 package. Neither workflow publishes content.
 
-## Required workflow
+## Required clone-first workflow
 
 1. List projects and find the source page.
 2. Inspect the full page, indexed component order, and content hash.
@@ -115,3 +115,60 @@ After a successful write, report:
 - validation result and component count;
 - comparison summary;
 - explicit confirmation that nothing was published.
+
+## 9. Edit the middle component without cloning (opt-in source build)
+
+```text
+Use Safe Strapi for <project-name>. Confirm preview_modify_page and modify_page
+are available and list_projects reports allowInPlaceEditing=true.
+
+Inspect existing page <document-id> and the schema for component index <index>.
+Preview only this patch with preview_modify_page:
+<field-changes>
+
+Preserve every other block and all existing component IDs. Show the differences,
+pageHash and operationHash. Do not write until I approve the preview.
+After approval, call modify_page with the exact operations, expectedPageHash from
+pageHash, expectedOperationHash from operationHash and a stable idempotency key.
+Re-inspect the same document to verify changes and retained IDs.
+Do not clone, clear fields, replace arrays or publish.
+```
+
+## 10. Insert between existing components (opt-in source build)
+
+```text
+Use Safe Strapi for <project-name> with direct editing explicitly enabled.
+Inspect existing page <document-id> and get the schema for <component-uid>.
+
+Prepare <component-json> with all schema attributes, explicit null/empty values
+for unused optional fields and no component IDs. Preview an insert after
+component index <index> using preview_modify_page.
+Preserve the old blocks and their relative order. Do not remove or replace them.
+
+After I approve, apply with modify_page, both preview hashes and a stable
+idempotency key. Re-inspect and verify the insertion and all existing IDs.
+Do not publish. If the installed package lacks these tools, explain that a
+current source build is required; do not bypass the checks with another MCP.
+```
+
+### Direct editing rules and report
+
+- Enable only when explicitly requested: `STRAPI_ALLOW_IN_PLACE_EDITING=true` or
+  `--allow-in-place-editing` for automatic discovery, `allowInPlaceEditing: true`
+  per project in custom config. The flag does not override custom config.
+- Use an existing draft with complete schemas and full population.
+- Only patch and insert are supported. Remove/replace/move/duplicate, component
+  identity changes, clearing fields, array replacement and changing existing
+  media/relations are rejected. Private/custom fields are unsupported.
+- Existing pages do not require owned-draft registration. Do not call
+  inspect_owned_draft or validate_draft on an unowned document.
+- On PAGE_CHANGED or PREVIEW_MISMATCH, inspect and preview again. With a lost
+  update response, the same inputs/key permit re-read reconciliation only;
+  WRITE_OUTCOME_UNKNOWN means inspect before starting a new operation.
+- Report the same document ID/slug, final pageHash, operationHash, changed fields,
+  component counts, retained IDs and that nothing was cloned or published.
+- External writers can still race the final REST GET/PUT; preventing this fully
+  needs a Strapi-side atomic endpoint. Official MCP writes bypass these guards.
+- Check the target frontend’s content-state configuration. A frontend that reads
+  only published content will not show draft edits. Static sites may need a
+  separate rebuild and deployment after publication.

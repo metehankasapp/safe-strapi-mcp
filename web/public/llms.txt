@@ -1,6 +1,6 @@
 # Safe Strapi MCP
 
-Safe Strapi MCP is an open-source, clone-first MCP server for Strapi 5 collection types with dynamic zones.
+Safe Strapi MCP is an open-source MCP server for Strapi 5 collection types with dynamic zones. Clone-first is the default. The current source also supports opt-in direct editing of existing drafts; these tools are not in the published 0.2.0 package.
 
 ## Documentation
 
@@ -16,8 +16,12 @@ Safe Strapi MCP is an open-source, clone-first MCP server for Strapi 5 collectio
 - Use the local stdio npm package. Start from the master prompt: https://safe-strapi-mcp.metehankasapp.workers.dev/#master-prompt
 - Start with list_projects, find_pages, inspect_page, and relevant component schemas.
 - Never guess a project, field, component UID, selector, or schema.
-- Preview clone operations before writing.
-- Create and modify only MCP-owned drafts.
+- For clone-first operations, preview before writing; modify only MCP-owned drafts and prove the source is unchanged.
+- For explicitly requested direct editing, verify preview_modify_page/modify_page are available and allowInPlaceEditing is true. Do not enable this during ordinary setup.
+- Direct editing requires a persisted preview, identical patch/insert operations, expectedPageHash from pageHash, expectedOperationHash from operationHash, and a stable idempotency key.
+- Direct editing targets an existing draft without ownership registration; re-inspect the same document to verify content and preserved component IDs. Do not use owned-draft validation for an unowned page.
+- Direct editing rejects remove/replace/move/duplicate, clearing nonempty fields, array replacement and changes to existing media/relations. Inserted components must supply all schema fields and omit component IDs.
 - Use the latest source or draft hash and a stable, unique idempotency key.
-- Validate and compare after writes, then confirm the source hash is unchanged.
+- REST is not atomic against external writers racing the last GET/PUT. Official MCP updates bypass these preservation checks.
+- Use a Content API Token for this MCP; the official Strapi MCP uses a separate Admin Token.
 - Never claim that Safe Strapi published content; it does not expose a publish tool.
