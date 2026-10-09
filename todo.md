@@ -162,3 +162,31 @@ Branch: `feat/structured-preview-and-rollback` → `main`.
 
 - Standart önizleme/geri alma doğrulaması: 49 test; package/web/worker typecheck,
   build ve npm pack --dry-run başarılı. Public kaynak/site gizlilik taraması temiz.
+
+
+## 9. Canlı CMS kabul testi — 2026-10-09
+
+- [x] Kullanıcının açık talebiyle, yalnızca yeni ve yayınlanmamış bir test draftı üzerinde çalış.
+- [x] Tüm mevcut draft/published sayfaların tam içerik hash'lerini önce/sonra karşılaştır; değişiklik yok.
+- [x] Yeni draft, ortadaki/nested alan düzenleme, kayıtlı geri alma ve araya component eklemeyi doğrula.
+- [x] Önizlemelerin salt okunur olduğunu, aynı key tekrarının ikinci yazma yapmadığını doğrula.
+- [x] Doğrudan alan boşaltma/component kaldırma/insert geri alma isteklerinin değişiklik yapmadan reddedildiğini doğrula.
+- [x] Yalnızca owned test draftında optional alan boşaltma ve aradaki component kaldırmayı doğrula.
+- [x] Owned-draft normalizasyonunun retained component ID'lerini yeniden oluşturabildiğini açıkça belgele.
+- [x] Sonraki düzenleme sonrası stale geri almanın PAGE_CHANGED ile durduğunu doğrula.
+- [x] Test kayıtlarını git dışında private tut; docs'a genel prompt/araç/sonuç sırasını ekle.
+- [ ] Public frontend görünürlüğünü ayrıca doğrula; bu testte HTTP 403 nedeniyle doğrulanamadı.
+- [ ] Page-record silme: mevcut MCP araçlarında desteklenmiyor; hiçbir kayıt silinmedi.
+
+
+## 10. Gerçek Codex oturumu ile kabul testi — 2026-10-09
+
+- [x] SDK testi ile gerçek AI-client testini ayır; tek kaydedilmiş Codex oturumunda ilerle.
+- [x] Prompt → araç seçimi → gerçek önizleme → ayrı onay mesajı → MCP yazma akışını doğrula.
+- [x] Yeni test draftı oluşturma, orta/nested düzenleme, geri alma ve araya eklemeyi doğrula.
+- [x] AI'nin boşaltma/kaldırma için owned-draft yolunu seçtiğini, native preview/ID sınırlarını açıkladığını doğrula.
+- [x] Gerçek stale rollback çağrısının PAGE_CHANGED döndürdüğünü; hata sonrası yalnız okuma yapıldığını doğrula.
+- [x] Tüm yanıtların yedi sabit etiketi kullandığını; shell bypass veya dosya değişikliği olmadığını doğrula.
+- [x] Bağımsız canlı API karşılaştırmasıyla mevcut tüm draft/published hash'lerinin değişmediğini doğrula.
+- [x] Client onay ayarı hatasını ve invalid selector düzeltmesini gerçek sonuçlarla kaydet; başarısız çağrıları başarı sayma.
+- [x] Tam oturum/prompt/yanıt/araç kayıtlarını private tut; public docs'a yalnız genel sonuçları ekle.
