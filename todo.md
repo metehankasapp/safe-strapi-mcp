@@ -108,7 +108,7 @@ Atomik Strapi endpoint ve müşteri ortamında etkinleştirme aşağıdaki ayrı
 
 - [x] README, CHANGELOG ve ilgili güvenlik/kullanım belgelerini güncelle;
   clone-first ile opt-in doğrudan düzenlemenin farkını açıkla.
-- [ ] ALJ için tek test projesinde read-only keşif yap; frontend'de zaten render
+- [x] Entegrasyon için özel bir test projesinde read-only keşif yap; frontend'de zaten render
   edilen component türleriyle içerik önizlemesini doğrula. Yeni schema/frontend
   component geliştirmesini bu değişiklikle karıştırma.
 - [x] Uygulama ve testler tamamlandıkça bu checklist'i güncelle; branch'e push et.
@@ -131,3 +131,7 @@ modunda harici eşzamanlı yazmalara karşı atomik garanti iddia edilmez.
 - Müşteri repo config/env dosyaları ve müşteri verileri testte kullanılmadı.
 - Mevcut dizilerde öğe güncelleme, component türü değiştirme, private/custom field
   desteği ve atomik sunucu endpoint sonraki geliştirmelerdir.
+
+- 2026-10-09: Özel entegrasyon, ayrı veritabanı kopyası ve gerçek frontend
+  ile yerel olarak doğrulandı. Public dokümanlarda proje adı/yolu bulunmuyor;
+  projeye özel test kodu git dışında tutuluyor.
