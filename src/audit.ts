@@ -34,6 +34,7 @@ export interface AuditRepository {
   health(): void | Promise<void>;
   withLock?<T>(key: string, callback: () => Promise<T>): Promise<T>;
   get(key: string): AuditRecord | null | Promise<AuditRecord | null>;
+  listPage(project: string, documentId: string, locale: string, defaultLocale: string, limit: number): AuditRecord[] | Promise<AuditRecord[]>;
   begin(input: { key: string; project: string; sourceDocumentId: string; cloneSlug: string; requestHash: string; intendedHash: string; request: unknown }): void | Promise<void>;
   complete(key: string, result: JsonObject): void | Promise<void>;
   fail(key: string, error: unknown): void | Promise<void>;
@@ -144,6 +145,17 @@ export class AuditStore implements AuditRepository {
       request: JSON.parse(String(row.request_json)) as JsonObject,
       result: row.result_json ? JSON.parse(String(row.result_json)) as JsonObject : null,
     };
+  }
+
+  listPage(project: string, documentId: string, locale: string, defaultLocale: string, limit: number): AuditRecord[] {
+    const rows = this.db.prepare(`
+      SELECT idempotency_key FROM content_jobs
+      WHERE project = ? AND source_document_id = ?
+        AND COALESCE(json_extract(request_json, '$.locale'), ?) = ?
+        AND json_extract(request_json, '$.action') IN ('modify-page', 'rollback-page')
+      ORDER BY created_at DESC, rowid DESC LIMIT ?
+    `).all(project, documentId, defaultLocale, locale, limit) as Array<{ idempotency_key: string }>;
+    return rows.map(row => this.get(row.idempotency_key)!);
   }
 
   begin(input: {

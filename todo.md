@@ -135,3 +135,30 @@ modunda harici eşzamanlı yazmalara karşı atomik garanti iddia edilmez.
 - 2026-10-09: Özel entegrasyon, ayrı veritabanı kopyası ve gerçek frontend
   ile yerel olarak doğrulandı. Public dokümanlarda proje adı/yolu bulunmuyor;
   projeye özel test kodu git dışında tutuluyor.
+
+## 8. Standart önizleme ve kontrollü geri alma
+
+Branch: `feat/structured-preview-and-rollback` → `main`.
+
+- [x] Clone, doğrudan düzenleme ve geri alma önizlemeleri için sürümlü, sabit
+  JSON alanları ve MCP output schema ekle; mevcut hash alanlarını koru.
+- [x] AI yanıtları için sabit etiketler tanımla: Hedef, İşlem, Değişiklikler,
+  Koruma, Yayınlama, Geri alma, Onay. Alanların eski/yeni değerlerini göster.
+- [x] İşlem sonucuna operationId ve geri alma uygunluğu ekle; private audit
+  snapshot'larını kullan ve geçmiş listesinden içerik snapshot'larını çıkar.
+- [x] list_page_operations, preview_rollback_page ve rollback_page araçlarını ekle.
+- [x] Yalnızca tamamlanmış ve doğrulanmış patch-only işlemleri geri al; insert
+  içeren işlemlerde component kaldırmayı reddet. Sonradan yapılan düzenlemeleri
+  ezme; önceki boş/null scalar değerlerini yalnızca kayıtlı geri almada geri getir.
+- [x] Önizleme/hash, schema, component ID ve media/relation koruma kontrollerini
+  geri almada uygula; aynı key ile kayıp yanıtı yeniden yazmadan uzlaştır.
+- [x] Restart, stale revision, tenant/locale izolasyonu, insert/uncertain işlem
+  reddi ve nested ID doğrulama testleri ekle.
+- [x] İzole Strapi 5.54.0 üzerinde gerçek MCP stdio ile patch → rollback →
+  insert akışını ve published sürümün değişmediğini doğrula.
+- [x] README, CHANGELOG, kurulum ve AI prompt belgelerini genel örneklerle güncelle.
+- [x] Ayrı branch üzerinde değişiklikleri ve doğrulama sonuçlarını PR için hazırla.
+- [ ] Merge, deploy ve npm release ayrı adımlar olarak yapılacak.
+
+- Standart önizleme/geri alma doğrulaması: 49 test; package/web/worker typecheck,
+  build ve npm pack --dry-run başarılı. Public kaynak/site gizlilik taraması temiz.

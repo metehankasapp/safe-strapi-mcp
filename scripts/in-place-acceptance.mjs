@@ -99,6 +99,26 @@ try {
     assert.ok(!result.isError, JSON.stringify(result));
     return result.structuredContent.data;
   };
+  const stdioPatch = { ...input, operations: [{ type: 'patch', selector: { index: 1 },
+    changes: { title: 'Temporary stdio change', child: { label: 'Temporary nested change' } } }] };
+  const stdioPreview = await call('preview_modify_page', stdioPatch);
+  assert.equal(stdioPreview.contractVersion, '1');
+  assert.equal(stdioPreview.fieldChanges.length, 2);
+  const stdioResult = await call('modify_page', { ...stdioPatch, expectedPageHash: stdioPreview.pageHash,
+    expectedOperationHash: stdioPreview.operationHash, idempotencyKey: 'real-stdio-patch' });
+  assert.equal(stdioResult.rollbackSupported, true);
+  const undo = { project: input.project, documentId: input.documentId, operationId: stdioResult.operationId };
+  const undoPreview = await call('preview_rollback_page', undo);
+  assert.equal(undoPreview.contractVersion, '1');
+  assert.equal(undoPreview.action, 'rollback_page');
+  assert.equal(undoPreview.fieldChanges.length, 2);
+  const undoResult = await call('rollback_page', { ...undo, expectedPageHash: undoPreview.pageHash,
+    expectedOperationHash: undoPreview.operationHash, idempotencyKey: 'real-stdio-rollback' });
+  assert.equal(undoResult.verified, true);
+  assert.deepEqual((await read('draft')).blocks, after.blocks);
+  assert.equal(contentHash(await read('published')), publishedHash);
+  const history = await call('list_page_operations', { project: input.project, documentId: input.documentId });
+  assert.deepEqual(history.operations.map(operation => operation.operationId), ['real-stdio-rollback', 'real-stdio-patch']);
   const inserted = { ...input, operations: [{ type: 'insert', component: { __component: 'shared.block', title: 'Inserted',
     child: { label: 'New' }, items: [], image: media.id, related: related.documentId, settings: { id: 'new-application-id' } }, position: { after: { index: 1 } } }] };
   const insertionPreview = await call('preview_modify_page', inserted);
@@ -109,7 +129,8 @@ try {
   assert.deepEqual(final.blocks.filter(b => b.title !== 'Inserted'), after.blocks);
   assert.equal(contentHash(await read('published')), publishedHash);
   console.log(JSON.stringify({ ok: true, strapiVersion: version, middlePatch: true, nestedIdsPreserved: true,
-    insertionViaStdio: true, mediaRelationsPreserved: true, publishedUnchanged: true, isolatedDatabase: true }));
+    insertionViaStdio: true, rollbackViaStdio: true, versionedPreviews: true,
+    mediaRelationsPreserved: true, publishedUnchanged: true, isolatedDatabase: true }));
 } finally {
   if (client) await client.close();
   if (audit) audit.close();

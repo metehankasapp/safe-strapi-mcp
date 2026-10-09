@@ -30,12 +30,15 @@ test('stdio server exposes only the safe tool surface', async () => {
       'inspect_owned_draft',
       'inspect_page',
       'list_components',
+      'list_page_operations',
       'list_projects',
       'modify_owned_draft',
       'modify_page',
       'preview_clone_and_modify',
       'preview_modify_page',
+      'preview_rollback_page',
       'replace_component',
+      'rollback_page',
       'validate_draft',
     ]);
     assert.equal(names.some((name) => /delete|publish|update_source/.test(name)), false);
