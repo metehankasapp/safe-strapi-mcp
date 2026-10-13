@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { JsonObject, ProjectConfig } from './types.js';
 import { AppError } from './errors.js';
+import { requestStrapi } from './api-request.js';
 
 type RuntimeProject = ProjectConfig & { token: string };
 
@@ -25,21 +26,7 @@ export class StrapiClient {
   constructor(private readonly project: RuntimeProject) {}
 
   private async request(path: string, init?: RequestInit): Promise<unknown> {
-    const response = await fetch(`${this.project.baseUrl}${path}`, {
-      ...init,
-      redirect: 'error',
-      headers: {
-        Authorization: `Bearer ${this.project.token}`,
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
-      signal: AbortSignal.timeout(60_000),
-    });
-    const body = await response.json().catch(() => null) as JsonObject | null;
-    if (!response.ok) {
-      throw new AppError('STRAPI_ERROR', `Strapi request failed with status ${response.status}`, { status: response.status }, 502);
-    }
-    return body;
+    return requestStrapi(this.project, path, init);
   }
 
   private query(locale?: string): string {

@@ -1,69 +1,43 @@
-import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { AppConfig, JsonObject } from './types.js';
+import type { AppConfig, JsonObject, ProjectConfig } from './types.js';
 import { AppError } from './errors.js';
+import { describeContentType, population, readContentRegistry } from './content-types.js';
 
 export async function localProject(env: NodeJS.ProcessEnv = process.env): Promise<AppConfig> {
-  if (env.STRAPI_ALLOW_IN_PLACE_EDITING && !['true', 'false'].includes(env.STRAPI_ALLOW_IN_PLACE_EDITING)) {
-    throw new AppError('CONFIG_ERROR', 'STRAPI_ALLOW_IN_PLACE_EDITING must be true or false');
+  for (const key of ['STRAPI_ALLOW_IN_PLACE_EDITING', 'STRAPI_ALLOW_ENTRY_EDITING']) {
+    if (env[key] && !['true', 'false'].includes(env[key]!)) throw new AppError('CONFIG_ERROR', `${key} must be true or false`);
   }
   const root = resolve(env.STRAPI_PROJECT_ROOT ?? '.');
-  if (!env.STRAPI_URL) throw new AppError('CONFIG_ERROR', 'Set STRAPI_URL and STRAPI_API_TOKEN in your environment or use --env-file. Set STRAPI_PROJECT_ROOT to your Strapi source directory.');
-  const components: Record<string, JsonObject> = {};
-  const componentRoot = resolve(root, 'src/components');
-  const categories = await readdir(componentRoot, { withFileTypes: true }).catch(() => []);
-  for (const category of categories.filter(item => item.isDirectory())) {
-    for (const file of await readdir(resolve(componentRoot, category.name))) {
-      if (file.endsWith('.json')) components[`${category.name}.${file.slice(0, -5)}`] = JSON.parse(await readFile(resolve(componentRoot, category.name, file), 'utf8'));
+  if (!env.STRAPI_URL) throw new AppError('CONFIG_ERROR', 'Set STRAPI_URL and a Strapi Content API token; point STRAPI_PROJECT_ROOT at your Strapi source.');
+  const registry = await readContentRegistry(root);
+  const pages: AppConfig['projects'] = {};
+  const entries: AppConfig['projects'] = {};
+  for (const [uid, schema] of Object.entries(registry.types)) {
+    const name = uid.split('.')[1];
+    if (env.STRAPI_CONTENT_TYPE && env.STRAPI_CONTENT_TYPE !== name && env.STRAPI_CONTENT_TYPE !== uid) continue;
+    const type = describeContentType(uid, schema);
+    const attributes = schema.attributes as Record<string, JsonObject>;
+    const slug = env.STRAPI_SLUG_FIELD ?? Object.keys(attributes).find(key => attributes[key].type === 'uid') ?? (attributes.slug?.type === 'string' ? 'slug' : '');
+    if (slug && !attributes[slug]) throw new AppError('CONFIG_ERROR', `STRAPI_SLUG_FIELD does not exist in ${name}: ${slug}`);
+    const routeField = env.STRAPI_ROUTE_FIELD;
+    if (routeField && !attributes[routeField]) throw new AppError('CONFIG_ERROR', `STRAPI_ROUTE_FIELD does not exist in ${name}: ${routeField}`);
+    const project: ProjectConfig = {
+      baseUrl: env.STRAPI_URL, tokenEnv: env.STRAPI_TOKEN_ENV ?? 'STRAPI_API_TOKEN',
+      collection: type.endpoint.slice('/api/'.length), blocksField: '', slugField: slug,
+      routeField, titleField: env.STRAPI_TITLE_FIELD ?? ['title', 'name'].find(key => attributes[key]?.type === 'string'),
+      defaultLocale: env.STRAPI_LOCALE ?? 'en', schemaRoot: root, contentType: name,
+      contentTypeSchema: schema, contentTypeSchemas: registry.types, componentSchemas: registry.components,
+      allowInPlaceEditing: env.STRAPI_ALLOW_IN_PLACE_EDITING === 'true',
+      allowEntryEditing: env.STRAPI_ALLOW_ENTRY_EDITING === 'true',
+    };
+    entries[name] = project;
+    if (type.kind !== 'collectionType' || !type.draftAndPublish || !slug) continue;
+    for (const [zone, definition] of Object.entries(attributes)) {
+      if (definition.type !== 'dynamiczone' || (env.STRAPI_BLOCKS_FIELD && env.STRAPI_BLOCKS_FIELD !== zone)) continue;
+      pages[`${name}:${zone}`] = { ...project, blocksField: zone, populate: population(schema, registry.components).toString() };
     }
   }
-  const projects: AppConfig['projects'] = {};
-  const apiRoot = resolve(root, 'src/api');
-  const apis = await readdir(apiRoot, { withFileTypes: true }).catch(() => []);
-  for (const api of apis.filter(item => item.isDirectory())) {
-    const typesRoot = resolve(apiRoot, api.name, 'content-types');
-    const types = await readdir(typesRoot, { withFileTypes: true }).catch(() => []);
-    for (const type of types.filter(item => item.isDirectory())) {
-      const schema = JSON.parse(await readFile(resolve(typesRoot, type.name, 'schema.json'), 'utf8'));
-      if (schema.kind !== 'collectionType' || schema.options?.draftAndPublish !== true) continue;
-      if (env.STRAPI_CONTENT_TYPE && env.STRAPI_CONTENT_TYPE !== type.name) continue;
-      const attributes = schema.attributes as Record<string, JsonObject>;
-      const slug = env.STRAPI_SLUG_FIELD ?? Object.keys(attributes).find(key => attributes[key].type === 'uid');
-      if (!slug || !attributes[slug]) continue;
-      const routeField = env.STRAPI_ROUTE_FIELD;
-      if (routeField && !attributes[routeField]) throw new AppError('CONFIG_ERROR', `STRAPI_ROUTE_FIELD does not exist in ${type.name}: ${routeField}`);
-      for (const [zone, definition] of Object.entries(attributes)) {
-        if (definition.type !== 'dynamiczone' || (env.STRAPI_BLOCKS_FIELD && env.STRAPI_BLOCKS_FIELD !== zone)) continue;
-        const params = new URLSearchParams();
-        const populate = (attrs: Record<string, JsonObject>, prefix: string, ancestors: string[] = []) => {
-          for (const [name, attribute] of Object.entries(attrs)) {
-            const key = `${prefix}[${name}]`;
-            if (attribute.type === 'media' || attribute.type === 'relation') params.set(key, 'true');
-            const nested = (uid: string, path: string) => {
-              if (ancestors.includes(uid) || !components[uid]) throw new AppError('CONFIG_ERROR', `Missing or recursive component schema: ${uid}`);
-              params.set(`${path}[populate]`, '*');
-              populate(components[uid].attributes as Record<string, JsonObject>, `${path}[populate]`, [...ancestors, uid]);
-              // Explicit nested population replaces the wildcard when present.
-              if ([...params.keys()].some(k => k.startsWith(`${path}[populate][`))) params.delete(`${path}[populate]`);
-            };
-            if (attribute.type === 'component') nested(String(attribute.component), key);
-            if (attribute.type === 'dynamiczone') for (const uid of attribute.components as string[]) nested(uid, `${key}[on][${uid}]`);
-          }
-        };
-        populate(attributes, 'populate');
-        const title = env.STRAPI_TITLE_FIELD ?? ['title', 'name'].find(key => attributes[key]?.type === 'string');
-        projects[`${type.name}:${zone}`] = {
-          baseUrl: env.STRAPI_URL, tokenEnv: env.STRAPI_TOKEN_ENV ?? 'STRAPI_API_TOKEN',
-          collection: schema.info.pluralName, blocksField: zone, slugField: slug,
-          routeField,
-          titleField: title, defaultLocale: env.STRAPI_LOCALE ?? 'en',
-          contentType: type.name, contentTypeSchema: schema, componentSchemas: components,
-          allowInPlaceEditing: env.STRAPI_ALLOW_IN_PLACE_EDITING === 'true',
-          populate: params.toString(),
-        };
-      }
-    }
-  }
-  if (!Object.keys(projects).length) throw new AppError('CONFIG_ERROR', 'No supported content types found. STRAPI_PROJECT_ROOT must contain src/api and src/components. Use collection types with Draft & Publish, a UID field, and a dynamic zone; or provide PROJECTS_CONFIG with embedded schemas.');
+  const projects = { ...pages, ...entries };
+  if (!Object.keys(projects).length) throw new AppError('CONFIG_ERROR', 'No content-type schemas found. STRAPI_PROJECT_ROOT must contain src/api, or use --config with contentTypeSchemas.');
   return { projects };
 }

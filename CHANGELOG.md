@@ -6,6 +6,12 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Schema-first discovery and API inspection for all collection/single types; ordinary content no longer requires a UID, dynamic zone or Draft & Publish.
+- `list_content_types`, `inspect_content_type`, `find_entries`, `get_entry`, `preview_entry_write` and `apply_entry_write` with persisted inspections/previews, schema constraints, real media/relation validation, revision checks, idempotency and re-fetch verification.
+- Linked localization through PUT on the same documentId, shared slugs by default, disclosed shared-field effects and unchanged published-version checks.
+- `list_media`, `preview_media_upload` and `upload_media` with multipart upload, file signature/hash checks and post-upload verification.
+- Explicit `allowEntryEditing` / `STRAPI_ALLOW_ENTRY_EDITING` / `--allow-entry-editing`, custom field storage contracts and immediate-write previews for types without draft state.
+
 - Versioned preview contract with stable fields, machine-readable output schemas and field-level before/after values for clone, direct-edit and rollback previews.
 - `list_page_operations`, `preview_rollback_page` and `rollback_page` for explicitly reverting completed patch-only draft edits using saved snapshots, revision checks and post-write verification. Inserted components are never removed.
 - Opt-in `preview_modify_page` and `modify_page` tools for patching and inserting components in an existing page draft without cloning or publishing.
@@ -14,6 +20,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Isolated real Strapi acceptance script covering nested IDs, media/relations, MCP stdio insertion and unchanged published content.
 
 ### Changed
+
+- API errors distinguish Strapi JSON errors from upstream WAF/authentication HTML failures. Clients must not silently fall back to browser or shell writes.
+- Automatic discovery tolerates leftover content-type directories without schema files; legacy page aliases and protections remain available.
 
 - SQLite write locks serialize operations across tenants sharing an audit database; audit records remain tenant-isolated.
 - Rich-text blocks preserve embedded application data during normalization.

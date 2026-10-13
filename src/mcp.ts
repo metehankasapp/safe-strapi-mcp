@@ -95,7 +95,52 @@ async function safe<T>(scope: 'mcp:read' | 'mcp:write', callback: () => Promise<
 }
 
 export function createMcpServer(service: ContentService): McpServer {
-  const server = new McpServer({ name: 'safe-strapi-mcp', version: '0.1.0' });
+  const server = new McpServer({ name: 'safe-strapi-mcp', version: '0.3.0' }, {
+    instructions: 'For general content entry, use list_content_types → inspect_content_type before composing JSON. Read its exact schema, nested components, REST contract, example records, localization and routing rules. Research its source routes, controllers, services, lifecycle hooks and frontend routing before choosing fields/slugs; verify custom API behavior separately. Resolve media/relation IDs using read tools. Use preview_entry_write and apply_entry_write; writes require a persisted schema/API inspection and exact preview. Localizations reuse the same documentId and normally the same slug. Media uses preview_media_upload → upload_media. Show immediate visibility for types without Draft & Publish and for assets. Never use browser/Computer Use or shell writes as an API failure fallback. Preserve existing page-tool protection and never publish or delete automatically.',
+  });
+
+  const contentTarget = { project: z.string().min(1), uid: z.string().regex(/^api::[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/) };
+  const entryRead = { ...contentTarget, locale: z.string().min(1).optional(), status: z.enum(['draft', 'published']).default('draft') };
+  const persistedWrite = { project: z.string().min(1), previewId: z.string().uuid(),
+    expectedOperationHash: z.string().regex(/^[a-f0-9]{64}$/), idempotencyKey: z.string().min(8).max(200) };
+
+  server.registerTool('list_content_types', {
+    description: 'Discover every collection type and single type, including News, Blogs, forms and types without dynamic zones. Returns exact UIDs, endpoints, localization and Draft & Publish support. Use before inspecting a type; never guess API names.',
+    inputSchema: { project: z.string().min(1) },
+  }, args => safe('mcp:read', () => service.entries.listContentTypes(args.project)));
+  server.registerTool('inspect_content_type', {
+    description: 'MANDATORY before content entry. Research the actual type schema, required/optional fields, defaults, constraints, nested components/dynamic zones, relation targets, media, sample records and exact REST API contract. Verifies read access and records an inspectionId/schemaHash required by preview_entry_write. Read the frontend route/language behavior before selecting slugs. Does not write to Strapi.',
+    inputSchema: { ...contentTarget, locale: z.string().min(1).optional(), sampleSize: z.number().int().min(0).max(5).default(2) },
+  }, args => safe('mcp:read', () => service.entries.inspectContentType(args.project, args.uid, args.locale, args.sampleSize)));
+  server.registerTool('find_entries', {
+    description: 'Read schema-validated collection filters with pagination, or the singleton endpoint. Use to find existing entries and valid relation documentIds before previewing. Private/password fields cannot be filtered or returned.',
+    inputSchema: { ...entryRead, page: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(20), filters: jsonObject.default({}) },
+  }, args => safe('mcp:read', () => service.entries.findEntries(args.project, args.uid, args.locale, args.page, args.pageSize, args.filters, args.status)));
+  server.registerTool('get_entry', {
+    description: 'Inspect a complete, schema-populated entry and its content hash before editing. Collection types require documentId; single types omit it. Returns component/media/relation identities and available locales without private fields.',
+    inputSchema: { ...entryRead, documentId: z.string().min(1).optional() },
+  }, args => safe('mcp:read', () => service.entries.getEntry(args.project, args.uid, args.documentId, args.locale, args.status)));
+  server.registerTool('preview_entry_write', {
+    description: 'Validate and persist a complete entry plan without CMS writes. Requires inspect_content_type inspectionId for this exact schema/API target. Supports create, explicit update, and localize with the SAME documentId; translations share source slugs by default. Validates scalar/Blocks/JSON fields, component IDs, dynamic zones and actual media/relation references. Updates send only requested fields. Existing updates require allowEntryEditing. Types without Draft & Publish require allowImmediateWrite=true and must disclose immediate visibility. Show exact contractVersion 2 diff, API request, affected/shared locale fields and publication state before approval.',
+    inputSchema: { ...contentTarget, inspectionId: z.string().uuid(), action: z.enum(['create', 'update', 'localize']), documentId: z.string().min(1).optional(),
+      locale: z.string().min(1).optional(), sourceLocale: z.string().min(1).optional(), data: jsonObject, allowImmediateWrite: z.boolean().optional() },
+  }, args => safe('mcp:read', () => service.entries.previewEntryWrite(args)));
+  server.registerTool('apply_entry_write', {
+    description: 'Apply only the approved persisted entry preview through the Strapi REST Content API. Requires previewId, exact operationHash and a stable idempotencyKey. Revalidates schema/target/revisions, never retries unknown creation, re-fetches to verify requested and unchanged fields and published versions. REST revision checks are not atomic. API/WAF failures must be reported; do not fall back to browser or shell writes.',
+    inputSchema: persistedWrite,
+  }, args => safe('mcp:write', () => service.entries.applyEntryWrite(args.project, args.previewId, args.expectedOperationHash, args.idempotencyKey)));
+  server.registerTool('list_media', {
+    description: 'Find real Media Library IDs, URLs and metadata with pagination. Uses the paginated API where available; older Strapi releases use the flat read API with client-side pagination.',
+    inputSchema: { project: z.string().min(1), search: z.string().optional(), page: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(20) },
+  }, args => safe('mcp:read', () => service.media.list(args.project, args.search, args.page, args.pageSize)));
+  server.registerTool('preview_media_upload', {
+    description: 'Preview uploading one explicitly chosen local media/document file to this Strapi project. Checks absolute path, file signature, size and hash; exposes exact destination, alt text and caption. No CMS writes. Assets become immediately visible after upload, so show this preview and obtain approval. Credentials/executable/unknown file types are not accepted.',
+    inputSchema: { project: z.string().min(1), filePath: z.string().min(1), alternativeText: z.string().max(2000).optional(), caption: z.string().max(2000).optional() },
+  }, args => safe('mcp:read', () => service.media.preview(args.project, args.filePath, args.alternativeText, args.caption)));
+  server.registerTool('upload_media', {
+    description: 'Upload exactly the approved persisted file through multipart /api/upload, then verify Media Library ID and metadata. Requires preview hash and idempotency key; rejects changed files and unknown upload retries. Returns real numeric media ID/URL for entry fields. Never deletes or replaces existing assets and never uses browser uploads.',
+    inputSchema: persistedWrite,
+  }, args => safe('mcp:write', () => service.media.upload(args.project, args.previewId, args.expectedOperationHash, args.idempotencyKey)));
 
   server.registerTool('list_projects', {
     description: 'List configured Strapi projects. Never exposes API tokens.',

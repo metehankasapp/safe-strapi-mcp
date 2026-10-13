@@ -4,7 +4,9 @@
 [![npm](https://img.shields.io/npm/v/safe-strapi-mcp.svg)](https://www.npmjs.com/package/safe-strapi-mcp)
 [![license](https://img.shields.io/npm/l/safe-strapi-mcp.svg)](LICENSE)
 
-Run content operations against your own Strapi 5 installation from a local MCP client. By default the service creates draft copies, applies ordered component changes, and verifies the result and source hash. An explicit project opt-in also permits previewed patch/insert operations on an existing page draft. It does not publish pages.
+Manage Strapi 5 content through the REST Content API from a local MCP client. The current source discovers collection types and single types, researches their schemas/API contracts before entry, persists previews, writes approved JSON and verifies the result. It supports ordinary fields, Markdown/Blocks rich text, components, dynamic zones, media, relations and linked locales. Existing page clone/protected-edit tools remain available. There is no publish or delete tool.
+
+The schema-first entry and media tools below are in the **0.3.0 source build**; npm **0.2.0** does not contain them yet. Build this checkout and launch `node /absolute/path/to/safe-strapi-mcp/dist/src/index.js` until the release is published.
 
 ## Install
 
@@ -68,7 +70,7 @@ Restart Codex, then begin with a read-only request: `Use safe-strapi. List proje
 
 Use the absolute executable path if your desktop client does not inherit your shell PATH. The tool loads the env file directly; do not paste secrets into chat. Environment variables already present in the process take precedence over the file.
 
-The source directory must contain `src/api` and `src/components`. Collection types with Draft & Publish, a UID field, and dynamic zones are discovered automatically. Each zone is named `content-type:zone` in `list_projects`. Single types are not supported by automatic setup.
+The source directory must contain `src/api`. All collection and single types are discovered, including types without a UID, dynamic zone or Draft & Publish. Components are read from `src/components` when present. Empty leftover content-type directories are skipped. Ordinary types appear by name in `list_projects`; compatible page zones retain their `content-type:zone` aliases. `list_content_types` returns exact UIDs and singular/plural API endpoints.
 
 Optional env variables: `STRAPI_CONTENT_TYPE`, `STRAPI_BLOCKS_FIELD`, `STRAPI_SLUG_FIELD`, `STRAPI_ROUTE_FIELD`, `STRAPI_TITLE_FIELD`, `STRAPI_LOCALE` (defaults to `en`). Set `STRAPI_ROUTE_FIELD=url` only when the frontend routes by a separate top-level field that must track cloned slugs. The field must exist in the content-type schema and be string-like; preview reports the change explicitly. Set `STRAPI_TOKEN_ENV=MY_EXISTING_TOKEN` to read a differently named token variable. Use HTTPS for remote CMS connections.
 
@@ -96,6 +98,30 @@ Only a remote URL and token? Obtain the schema source from the project owner, or
 For custom config, populate must include every nested component, media and relation required for the full document. Embedded `componentSchemas` (UID to schema object) and `contentTypeSchema` can replace source files. Automatic local setup generates nested populate queries from discovered schemas. Custom Strapi routes, permissions and plugins still require integration validation.
 
 ## Use
+
+### Schema-first content entry and media
+
+The AI must inspect the actual type and API before constructing a request. A matching inspection is **enforced** by the preview service; a persisted matching preview is enforced by the writer. The inspected schema/target, draft revisions, references and published versions are checked again at write time.
+
+1. `list_projects` → `list_content_types` to select the exact type UID.
+2. `inspect_content_type` returns an `inspectionId`, schema hash, required fields/defaults/constraints, nested schemas, example records, relation targets and the precise REST contract/documentation. It verifies read access; it does **not** claim untested write permissions.
+3. Read the type's routes, controllers, services and lifecycle hooks for custom behavior, and inspect the frontend route and language selector. Resolve existing entries with `find_entries` / `get_entry`, real media IDs with `list_media`, and relation documentIds through their own type schemas. Inspection describes the standard Strapi REST contract; custom endpoints/plugins require separate verification before use.
+4. `preview_entry_write` with the `inspectionId`, `action` (`create`, `update`, `localize`) and schema-valid `data`. Review its contractVersion **2** target, exact API request, before/after fields, affected locales and visibility. No CMS writes occur in preview.
+5. After approval, `apply_entry_write` with `project`, `previewId`, the exact `expectedOperationHash` and a stable `idempotencyKey`. It sends only the previewed fields and re-fetches to verify changed/unchanged data and published versions.
+
+Examples: create News/Blogs with `POST /api/news-posts?locale=en&status=draft`; add a translation using `PUT /api/news-posts/:sameDocumentId?locale=ar&status=draft`; update a singleton using `PUT /api/global?status=draft`. Endpoint names come from the inspected schema, never guesses.
+
+Existing-entry updates require `--allow-entry-editing` / `STRAPI_ALLOW_ENTRY_EDITING=true`, or `allowEntryEditing: true` in a custom project config. This is separate from the older protected dynamic-zone opt-in. Explicit generic previews can change schema-approved fields, references and arrays; they are not restricted to the old patch/insert subset. Private/password fields, unknown storage types and polymorphic relations are refused. Verified custom-field storage types can be supplied with `customFieldTypes`, e.g. `{ "plugin::color-picker.color": "string" }`; never guess a plugin's contract.
+
+Localizations reuse the **same documentId**. The default `localeSlugPolicy: "shared"` copies the source slug and rejects locale suffixes. Set `"localized"` only when the frontend maps translated slugs correctly. Shared non-localized fields cannot be changed while creating a translation; preview a separate update. Existing locale IDs, media and unmodified content are preserved and shared-field effects are disclosed.
+
+Types with Draft & Publish always use explicit `status=draft`. Types without it have **no draft state**: `allowImmediateWrite: true` is required in the preview and their immediate visibility must be approved. This is not an implicit publish endpoint.
+
+For new files: `preview_media_upload` → approve exact file/destination → `upload_media`. Uploads use multipart `/api/upload`, verify file signatures/hashes and saved metadata, and return real numeric media IDs/URLs. Files become immediately visible in the Media Library. Reuse existing media when available. Accepted signatures cover JPEG, PNG, GIF, WebP, AVIF, PDF, MP4, MP3, WAV and DOCX/XLSX/PPTX up to 20 MiB; other formats need a verified adapter.
+
+Unknown create/upload outcomes are never blindly retried or adopted by slug. Known update targets can be re-read to reconcile the same operation without another PUT. Idempotency keys cannot be reused for a different preview. REST checks cannot prevent external writers racing the final GET/PUT.
+
+An API/WAF HTML 401/403 is reported with response kind, status and upstream server, without leaking secrets or raw response content. **Do not bypass security challenges or fall back to Computer Use, admin UI writes, another MCP or shell writes.** Report the concrete API blocker and resolve credentials/permissions/network access first.
 
 For the default clone workflow, ask your client to list projects, inspect the page, preview operations, and create the reviewed draft with its source hash and a stable idempotency key. Then validate and compare it. Source pages remain read-only in this workflow. Owned-draft tools require registration in this installation's ownership database. `modify_owned_draft` uses create normalization and may regenerate retained component IDs; its content-preservation behavior differs from direct editing. It has no dedicated persisted preview tool: inspect, review an AI-side plan, then pass the matching draft hash.
 
@@ -200,8 +226,8 @@ also applies to rollback. These tools require the current source build.
 
 Safe Strapi MCP uses a Content API Token and REST. The official MCP uses an Admin
 Token and `/mcp`; keep their credentials separate. Use this service's opt-in
-tools for protected dynamic-zone edits and the official MCP for general content
-operations. Where supported, restrict the official token's update permissions on
+tools for protected dynamic-zone edits and schema-first entry tools for general
+content. Where supported, restrict the official token's update permissions on
 protected fields: writing through its tools bypasses these preservation checks.
 
 Copy-ready workflows for discovery, JSON insertion, component reordering, long pages, team review drafts, and conflict recovery are available in the [prompt cookbook](https://safe-strapi-mcp.metehankasapp.workers.dev/prompts). AI clients can read the same guide directly as [Markdown](https://safe-strapi-mcp.metehankasapp.workers.dev/prompts.md) or discover key resources through [`llms.txt`](https://safe-strapi-mcp.metehankasapp.workers.dev/llms.txt).
@@ -237,12 +263,18 @@ To verify in-place editing with an isolated real Strapi instance, run after buil
 
 ```sh
 node scripts/in-place-acceptance.mjs /absolute/path/to/strapi-project-with-node_modules
+node scripts/entry-acceptance.mjs /absolute/path/to/strapi-project-with-node_modules
 ```
 
 The script reuses installed dependencies but creates a temporary app, SQLite DB
 and test token; it never loads that project's config, env or customer data. It
 checks middle/nested patches, component IDs, media/relations, insertion over MCP
 stdio and preservation of the published version, then removes the temporary app.
+The entry acceptance also verifies media uploads, collections, single types,
+Markdown/Blocks, JSON, numbers/date/time, three linked locales with shared slugs,
+and explicit immediate writes. It passed against Strapi 5.54.0. Big integers are
+verified exactly; API/database precision loss fails verification rather than
+being reported as success.
 
 Independent tooling; not affiliated with or endorsed by Strapi.
 

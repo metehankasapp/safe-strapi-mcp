@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { localProject } from '../src/local-project.js';
+import { registryFor } from '../src/content-types.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { startMockStrapi } from './mock-strapi.js';
@@ -47,4 +48,28 @@ test('env-file onboarding discovers schema and clones through the real stdio pro
 
 test('local onboarding refuses to guess when schemas are unavailable', async () => {
   await assert.rejects(localProject({ STRAPI_URL: 'https://cms.example.com', STRAPI_PROJECT_ROOT: '/nonexistent-safe-strapi-test' }), { code: 'CONFIG_ERROR' });
+});
+
+test('discovery includes plain collections and single types without UID/Draft & Publish and skips empty content directories', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'safe-all-types-'));
+  try {
+    for (const [name, kind, draftAndPublish] of [['news', 'collectionType', true], ['global', 'singleType', true], ['lead', 'collectionType', false]] as const) {
+      const folder = join(root, 'src/api', name, 'content-types', name);
+      await mkdir(folder, { recursive: true });
+      await writeFile(join(folder, 'schema.json'), JSON.stringify({ kind, options: { draftAndPublish }, info: { singularName: name, pluralName: name + 's' }, attributes: { title: { type: 'string', required: true } } }));
+    }
+    await mkdir(join(root, 'src/api/stale/content-types/stale'), { recursive: true });
+    const config = await localProject({ STRAPI_PROJECT_ROOT: root, STRAPI_URL: 'https://cms.example.com', STRAPI_ALLOW_ENTRY_EDITING: 'true' });
+    assert.deepEqual(Object.keys(config.projects).sort(), ['global', 'lead', 'news']);
+    assert.equal(config.projects.global.collection, 'global');
+    assert.equal(config.projects.news.blocksField, '');
+    assert.equal(config.projects.lead.allowEntryEditing, true);
+    assert.equal(Object.keys(config.projects.news.contentTypeSchemas!).length, 3);
+    const newsSchemaPath = join(root, 'src/api/news/content-types/news/schema.json');
+    const changed = { kind: 'collectionType', options: { draftAndPublish: true }, info: { singularName: 'news', pluralName: 'newss' }, attributes: { title: { type: 'string' }, revision: { type: 'integer' } } };
+    await writeFile(newsSchemaPath, JSON.stringify(changed));
+    assert.deepEqual((await registryFor(config.projects.news)).types['api::news.news'], changed);
+    await rm(newsSchemaPath);
+    assert.equal((await registryFor(config.projects.news)).types['api::news.news'], undefined);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

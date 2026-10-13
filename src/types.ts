@@ -14,6 +14,10 @@ export interface ProjectConfig {
   contentType?: string;
   componentSchemas?: Record<string, JsonObject>;
   contentTypeSchema?: JsonObject;
+  contentTypeSchemas?: Record<string, JsonObject>;
+  allowEntryEditing?: boolean;
+  localeSlugPolicy?: 'shared' | 'localized';
+  customFieldTypes?: Record<string, string>;
   allowInPlaceEditing?: boolean;
 }
 

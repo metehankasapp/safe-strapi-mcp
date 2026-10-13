@@ -8,6 +8,8 @@ import { AppError } from './errors.js';
 import { canAccessProject, currentTenant, requireProject } from './auth.js';
 import { planInPlace, type InPlaceOperation } from './in-place.js';
 import { previewContract, REST_CONCURRENCY } from './preview.js';
+import { EntryService } from './entry-service.js';
+import { MediaService } from './media-service.js';
 
 export interface ModifyPagePreviewRequest {
   project: string;
@@ -119,12 +121,17 @@ function componentDifferences(before: unknown[], after: unknown[]): JsonObject[]
 
 export class ContentService {
   private readonly locks = new Map<string, Promise<void>>();
+  readonly entries: EntryService;
+  readonly media: MediaService;
 
   constructor(
     private readonly config: AppConfig,
     private readonly audit: AuditRepository,
     private readonly projectResolver: (config: AppConfig, name: string) => ReturnType<typeof resolveProject> = (config, name) => resolveProject(config, name),
-  ) {}
+  ) {
+    this.entries = new EntryService(config, audit, projectResolver);
+    this.media = new MediaService(config, audit, projectResolver);
+  }
 
   async readiness(): Promise<void> { await this.audit.health(); }
 
@@ -153,12 +160,15 @@ export class ContentService {
       name, baseUrl: project.baseUrl, collection: project.collection,
       blocksField: project.blocksField, defaultLocale: project.defaultLocale,
       allowInPlaceEditing: project.allowInPlaceEditing === true,
+      allowEntryEditing: project.allowEntryEditing === true,
+      pageToolsAvailable: Boolean(project.blocksField && project.slugField),
     }));
   }
 
   private client(projectName: string): { client: StrapiClient; project: ReturnType<typeof resolveProject> } {
     requireProject(projectName);
     const project = this.projectResolver(this.config, projectName);
+    if (!project.blocksField || !project.slugField) throw new AppError('INVALID_REQUEST', 'Use the schema-first entry tools for this content type; page tools require a configured dynamic zone and slug field');
     return { client: new StrapiClient(project), project };
   }
 

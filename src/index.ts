@@ -9,9 +9,9 @@ import { ContentService } from './service.js';
 import { createMcpServer } from './mcp.js';
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { 'env-file': { type: 'string' }, 'project-root': { type: 'string' }, config: { type: 'string' }, 'allow-in-place-editing': { type: 'boolean' }, help: { type: 'boolean' } } });
+  const { values } = parseArgs({ options: { 'env-file': { type: 'string' }, 'project-root': { type: 'string' }, config: { type: 'string' }, 'allow-in-place-editing': { type: 'boolean' }, 'allow-entry-editing': { type: 'boolean' }, help: { type: 'boolean' } } });
   if (values.help) {
-    process.stdout.write('safe-strapi-mcp [--env-file /absolute/path/.env] [--project-root /absolute/path/strapi] [--config /absolute/path/projects.json] [--allow-in-place-editing]\nRuns locally over stdio. Set STRAPI_URL and STRAPI_API_TOKEN; no shared MCP access key is required.\n--allow-in-place-editing opts auto-discovered projects into draft component editing (custom configs use allowInPlaceEditing).\n');
+    process.stdout.write('safe-strapi-mcp [--env-file /absolute/path/.env] [--project-root /absolute/path/strapi] [--config /absolute/path/projects.json] [--allow-in-place-editing] [--allow-entry-editing]\nRuns locally over stdio. Set STRAPI_URL and STRAPI_API_TOKEN; no shared MCP access key is required.\n--allow-in-place-editing opts into protected draft component edits (custom config: allowInPlaceEditing).\n--allow-entry-editing opts into schema-first existing-entry updates (custom config: allowEntryEditing).\nAll collection types and single types are discovered. Inspect schema/API, preview, then write and verify.\n');
     return;
   }
   const envFile = values['env-file'] ?? process.env.DOTENV_CONFIG_PATH;
@@ -21,6 +21,7 @@ async function main(): Promise<void> {
   else if (envFile && !process.env.STRAPI_PROJECT_ROOT) process.env.STRAPI_PROJECT_ROOT = dirname(resolve(envFile));
   if (values.config) process.env.PROJECTS_CONFIG = resolve(values.config);
   if (values['allow-in-place-editing']) process.env.STRAPI_ALLOW_IN_PLACE_EDITING = 'true';
+  if (values['allow-entry-editing']) process.env.STRAPI_ALLOW_ENTRY_EDITING = 'true';
   if (!process.env.AUDIT_DB && process.env.STRAPI_PROJECT_ROOT) process.env.AUDIT_DB = resolve(process.env.STRAPI_PROJECT_ROOT, '.safe-strapi/audit.sqlite');
   const config = await loadConfig();
   const service = new ContentService(config, new AuditStore());

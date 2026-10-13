@@ -1,9 +1,12 @@
 {
   "name": "safe-strapi-mcp",
-  "version": "0.2.0",
-  "files": ["dist/src", "README.md"],
+  "version": "0.3.0",
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
   "type": "module",
-  "description": "Safe, clone-first Strapi content operations over MCP",
+  "description": "Schema-first Strapi content entry and protected page operations over MCP",
   "license": "MIT",
   "author": "Metehan Kasap",
   "homepage": "https://safe-strapi-mcp.metehankasapp.workers.dev",
@@ -14,7 +17,14 @@
   "bugs": {
     "url": "https://github.com/metehankasapp/safe-strapi-mcp/issues"
   },
-  "keywords": ["strapi", "mcp", "model-context-protocol", "cms", "content-automation", "ai"],
+  "keywords": [
+    "strapi",
+    "mcp",
+    "model-context-protocol",
+    "cms",
+    "content-automation",
+    "ai"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true

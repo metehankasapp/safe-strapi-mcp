@@ -40,7 +40,7 @@ test('stdio server exposes only the safe tool surface', async () => {
       'replace_component',
       'rollback_page',
       'validate_draft',
-    ]);
+    ].concat(['list_content_types', 'inspect_content_type', 'find_entries', 'get_entry', 'preview_entry_write', 'apply_entry_write', 'list_media', 'preview_media_upload', 'upload_media']).sort());
     assert.equal(names.some((name) => /delete|publish|update_source/.test(name)), false);
     const failed = await client.callTool({
       name: 'inspect_page',

@@ -10,8 +10,8 @@ const projectSchema = z.object({
   baseUrl: z.string().url(),
   tokenEnv: z.string().min(1),
   collection: z.string().regex(/^[a-zA-Z0-9_-]+$/),
-  blocksField: z.string().min(1),
-  slugField: z.string().min(1),
+  blocksField: z.string().default(''),
+  slugField: z.string().default(''),
   routeField: z.string().min(1).optional(),
   titleField: z.string().min(1).optional(),
   populate: z.string().min(1).optional(),
@@ -20,6 +20,10 @@ const projectSchema = z.object({
   contentType: z.string().regex(/^[a-zA-Z0-9_-]+$/).optional(),
   componentSchemas: z.record(z.string(), z.record(z.unknown())).optional(),
   contentTypeSchema: z.record(z.unknown()).optional(),
+  contentTypeSchemas: z.record(z.string(), z.record(z.unknown())).optional(),
+  allowEntryEditing: z.boolean().default(false),
+  localeSlugPolicy: z.enum(['shared', 'localized']).default('shared'),
+  customFieldTypes: z.record(z.string(), z.enum(['string', 'text', 'richtext', 'json', 'blocks', 'boolean', 'integer', 'biginteger', 'float', 'decimal', 'date', 'datetime', 'time'])).optional(),
   allowInPlaceEditing: z.boolean().default(false),
 });
 

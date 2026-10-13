@@ -2,6 +2,30 @@
 
 Use this guide with any MCP-compatible AI client. Replace `<placeholders>` with real values. Clone-first is the default; opt-in direct editing of existing drafts is also in the current source build. These new tools are not in the published 0.2.0 package. Neither workflow publishes content.
 
+## Schema-first collection and single type entry (0.3.0 source build)
+
+Use this workflow for News, Blogs, models, forms, settings and ordinary collections. It does not require a dynamic zone or UID. These tools are not in npm 0.2.0.
+
+1. list_projects, then list_content_types. Select the exact UID, kind and schema-derived endpoint.
+2. inspect_content_type: read required/optional fields, defaults/constraints, nested schemas, media/relation targets, samples and REST contract. Follow its official API references. The returned inspectionId is required for preview.
+3. Inspect frontend route and language switching. With language prefixes, use the same slug across locales. The default shared slug policy rejects localized suffixes; configure localized only with a matching frontend resolver.
+4. find_entries/get_entry and list_media. Resolve real media IDs and related documentIds. Do not invent them.
+5. preview_entry_write with create/update/localize, inspectionId and data. Show target, exact API request, before/after values, shared-field effects, hashes and publication state.
+6. Apply the approved persisted plan with apply_entry_write, previewId, expectedOperationHash and a stable idempotencyKey.
+7. Re-fetch and verify intended fields, unrelated content, locale links and unchanged published versions. Verify the frontend separately when accessible.
+
+Existing updates require allowEntryEditing or --allow-entry-editing. Translations use PUT on the same documentId. Shared fields cannot be changed while creating a locale. Single types use PUT on the singular endpoint. For Draft & Publish, every write explicitly passes status=draft. For types without a draft state, allowImmediateWrite=true and approval of immediate visibility are required.
+
+Example request:
+
+> Use the News type in my configured project. Inspect its schema and REST API first. Find its media and category IDs. Preview a new English draft from the supplied article, then its Arabic and Central Kurdish localizations using the same documentId and slug. Apply only the authorized previews and verify all three. Never publish or use browser/shell writes.
+
+Media workflow: list_media to reuse existing files, or preview_media_upload -> approve the exact file/destination -> upload_media. Multipart uploads verify the file signature/hash and stored metadata. Assets become immediately visible. Never blindly retry an unknown create/upload outcome or adopt records by slug.
+
+An HTML 401/403 from AWS/WAF is a concrete API blocker. Report status/server/response kind without exposing credentials or raw content. Never bypass it or silently fall back to Computer Use, another MCP or shell writes.
+
+General entry/media previews use contractVersion 2. The existing page clone/direct-edit/rollback contracts below remain version 1 and retain their separate guards.
+
 ## Required clone-first workflow
 
 1. List projects and find the source page.
