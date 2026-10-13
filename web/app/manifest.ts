@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Safe Strapi MCP',
     short_name: 'Safe Strapi',
-    description: 'Clone-first content operations for Strapi 5.',
+    description: 'Schema-first content entry and verified API writes for Strapi 5.',
     start_url: '/',
     display: 'standalone',
     background_color: '#ffffff',
