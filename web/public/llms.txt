@@ -1,6 +1,6 @@
 # Safe Strapi MCP
 
-Safe Strapi MCP is a local Strapi 5 Content API MCP. The 0.3.0 source build supports schema-first entry for collection types and single types, linked localizations and media upload. Legacy page cloning/protected edits remain available. npm 0.2.0 does not include the new tools yet.
+Safe Strapi MCP is a local Strapi 5 Content API MCP. npm 0.3.0 supports schema-first entry for collection types and single types, linked localizations and media upload. Legacy page cloning/protected edits remain available. Upgrade existing clients to 0.3.0 and restart them.
 
 ## Documentation
 
@@ -33,4 +33,4 @@ Safe Strapi MCP is a local Strapi 5 Content API MCP. The 0.3.0 source build supp
 - There is no publish/delete tool. Draft writes preserve published versions. Types without Draft & Publish and uploaded assets are immediately visible, which their previews must disclose.
 - Current source previews use contractVersion 1: target, summary, changes, fieldChanges, safety, revision and nextAction. Present stable labels: Target, Action, Changes, Protection, Publication, Rollback, Approval. Disclose fieldChangesTruncated.
 - Explicit rollback uses list_page_operations → preview_rollback_page → approval → rollback_page with both hashes and a new idempotency key. Only completed verified patch-only edits at the exact post-operation revision are eligible; later edits and insert operations are rejected. Never automatically roll back.
-- Keep local audit snapshots private. These new tools require the current source build; they are not in the published 0.2.0 package.
+- Keep local audit snapshots private. These tools require npm 0.3.0 or a matching source build.

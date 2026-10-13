@@ -19,7 +19,7 @@ export default function Status() {
         <StatusClient />
         <div className="statusRows">
           <div><span><i />Master prompt</span><strong>Available</strong></div>
-          <div><span><i />Local MCP package</span><strong>npm</strong></div>
+          <div><span><i />Local MCP package</span><strong>npm 0.3.0</strong></div>
           <div><span><i />Documentation</span><strong>Monitored</strong></div>
           <div><span><i className="neutral" />Connected Strapi projects</span><strong>Configured separately</strong></div>
         </div>

@@ -1,10 +1,10 @@
 # Safe Strapi MCP Prompt Cookbook
 
-Use this guide with any MCP-compatible AI client. Replace `<placeholders>` with real values. Clone-first is the default; opt-in direct editing of existing drafts is also in the current source build. These new tools are not in the published 0.2.0 package. Neither workflow publishes content.
+Use this guide with any MCP-compatible AI client. Replace `<placeholders>` with real values. npm 0.3.0 supports schema-first collection/single type entry, media uploads and opt-in draft edits. Page copies use the clone-first workflow. Draft content is never published automatically.
 
-## Schema-first collection and single type entry (0.3.0 source build)
+## Schema-first collection and single type entry (npm 0.3.0)
 
-Use this workflow for News, Blogs, models, forms, settings and ordinary collections. It does not require a dynamic zone or UID. These tools are not in npm 0.2.0.
+Use this workflow for News, Blogs, models, forms, settings and ordinary collections. It does not require a dynamic zone or UID. Upgrade older clients to npm 0.3.0 and restart them before using these tools.
 
 1. list_projects, then list_content_types. Select the exact UID, kind and schema-derived endpoint.
 2. inspect_content_type: read required/optional fields, defaults/constraints, nested schemas, media/relation targets, samples and REST contract. Follow its official API references. The returned inspectionId is required for preview.
@@ -140,7 +140,7 @@ After a successful write, report:
 - comparison summary;
 - explicit confirmation that nothing was published.
 
-## 9. Edit the middle component without cloning (opt-in source build)
+## 9. Edit the middle component without cloning (opt-in · npm 0.3.0)
 
 ```text
 Use Safe Strapi for <project-name>. Confirm preview_modify_page and modify_page
@@ -158,7 +158,7 @@ Re-inspect the same document to verify changes and retained IDs.
 Do not clone, clear fields, replace arrays or publish.
 ```
 
-## 10. Insert between existing components (opt-in source build)
+## 10. Insert between existing components (opt-in · npm 0.3.0)
 
 ```text
 Use Safe Strapi for <project-name> with direct editing explicitly enabled.
@@ -172,7 +172,7 @@ Preserve the old blocks and their relative order. Do not remove or replace them.
 After I approve, apply with modify_page, both preview hashes and a stable
 idempotency key. Re-inspect and verify the insertion and all existing IDs.
 Do not publish. If the installed package lacks these tools, explain that a
-current source build is required; do not bypass the checks with another MCP.
+npm 0.3.0 is required; do not bypass the checks with another MCP.
 ```
 
 ### Direct editing rules and report
@@ -215,7 +215,7 @@ inspect relevant content before seeking approval. Keep machine field names
 unchanged; human labels can be localized. User approval is a client workflow
 rule, not independently enforced human authentication by the MCP.
 
-## 11. Undo a recorded field edit (opt-in source build)
+## 11. Undo a recorded field edit (opt-in · npm 0.3.0)
 
 ```text
 Use Safe Strapi for <project-name>. List local operations for <document-id>
@@ -239,7 +239,7 @@ scalar values may return to a previously empty/null value; ordinary patches
 still cannot clear content. A lost rollback response can only be reconciled by
 re-reading with the same inputs/key, never blindly sending a second update.
 Keep the local audit database private: it contains content snapshots. These
-new tools are in the current source build, not the published 0.2.0 package.
+tools are available in npm 0.3.0; the acceptance below records the earlier source-build test.
 
 
 ## 12. Remote acceptance: one disposable draft, step by step

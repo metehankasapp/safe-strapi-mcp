@@ -6,7 +6,7 @@
 
 Manage Strapi 5 content through the REST Content API from a local MCP client. The current source discovers collection types and single types, researches their schemas/API contracts before entry, persists previews, writes approved JSON and verifies the result. It supports ordinary fields, Markdown/Blocks rich text, components, dynamic zones, media, relations and linked locales. Existing page clone/protected-edit tools remain available. There is no publish or delete tool.
 
-The schema-first entry and media tools below are in the **0.3.0 source build**; npm **0.2.0** does not contain them yet. Build this checkout and launch `node /absolute/path/to/safe-strapi-mcp/dist/src/index.js` until the release is published.
+Schema-first entry, media uploads and protected page editing are included in **npm 0.3.0**. Upgrade existing installations with `npm install --global safe-strapi-mcp@0.3.0`, or configure your MCP client with `--package=safe-strapi-mcp@0.3.0` and restart it.
 
 ## Install
 
@@ -61,7 +61,7 @@ Codex CLI can register the published package directly:
 
 ```sh
 codex mcp add safe-strapi -- \
-  npm exec --yes --package=safe-strapi-mcp -- safe-strapi-mcp \
+  npm exec --yes --package=safe-strapi-mcp@0.3.0 -- safe-strapi-mcp \
   --env-file /absolute/path/strapi/.env.safe-strapi \
   --project-root /absolute/path/strapi
 ```
@@ -129,8 +129,7 @@ Tools: `list_projects`, `find_pages`, `inspect_page`, `list_components`, `get_co
 
 ### Edit an existing page draft without cloning (opt-in)
 
-This feature is available in the current source branch; it is not in the published
-0.2.0 package. Build the source to use it before the next release.
+This feature is included in npm 0.3.0. Upgrade older installations before using it.
 
 For auto-discovered projects, set `STRAPI_ALLOW_IN_PLACE_EDITING=true` in your
 private env file or pass `--allow-in-place-editing`. For a custom projects config,
@@ -220,7 +219,7 @@ references. Recorded scalar values may return to their previous empty/null value
 ordinary patches still forbid clearing content. `rollbackSupported` is eligibility,
 not a guarantee that the current page revision permits rollback. There is no
 automatic rollback and no component deletion. The REST concurrency limitation
-also applies to rollback. These tools require the current source build.
+also applies to rollback. These tools require npm 0.3.0 or a matching source build.
 
 ### Use alongside the official Strapi MCP
 
